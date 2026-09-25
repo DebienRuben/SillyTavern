@@ -6,11 +6,14 @@ import { afterEach, beforeEach, describe, expect, test } from '@jest/globals';
 import { NovelError, createProject, getProject, saveStructure } from '../src/novel/store.js';
 import {
     deleteEntity,
+    deleteThread,
     listEntities,
+    listThreads,
     listSuggestions,
     replaceSceneSuggestions,
     resolveSuggestion,
     saveEntity,
+    saveThread,
 } from '../src/novel/codex.js';
 
 /** @type {string} */
@@ -144,5 +147,39 @@ describe('codex suggestions', () => {
         await replaceSceneSuggestions(directories, projectId, sceneId, [{ kind: 'update', entityId: mara.id, changes: { condition: 'Tired' } }]);
         await deleteEntity(directories, projectId, mara.id);
         expect(listSuggestions(directories, projectId)).toEqual([]);
+    });
+});
+
+describe('plot threads', () => {
+    test('creates, updates and deletes threads by hand', async () => {
+        const thread = await saveThread(directories, projectId, { title: 'The blank ledger', description: 'Why is it empty?', openedIn: sceneId });
+        expect(thread).toMatchObject({ status: 'open', openedIn: sceneId, resolvedIn: null, notes: [] });
+        await expectNovelError(saveThread(directories, projectId, { title: 'the BLANK ledger' }), 409);
+        await expectNovelError(saveThread(directories, projectId, { title: ' ' }), 400);
+
+        const resolved = await saveThread(directories, projectId, { ...thread, status: 'resolved', resolvedIn: sceneId });
+        expect(resolved).toMatchObject({ id: thread.id, status: 'resolved', resolvedIn: sceneId });
+
+        await deleteThread(directories, projectId, thread.id);
+        expect(listThreads(directories, projectId)).toEqual([]);
+    });
+
+    test('suggests new threads and progress, and applies them on accept', async () => {
+        const existing = await saveThread(directories, projectId, { title: 'Who is the buyer?', openedIn: sceneId });
+        const items = await replaceSceneSuggestions(directories, projectId, sceneId, [
+            { kind: 'thread-open', thread: { title: 'The blank ledger', description: 'The pages are empty.' }, evidence: 'The pages were blank.' },
+            { kind: 'thread-open', thread: { title: 'who is the buyer?' } },
+            { kind: 'thread-update', threadId: existing.id, status: 'open', note: '' },
+            { kind: 'thread-update', threadId: existing.id, status: 'resolved', note: 'Tom admits he is the buyer.' },
+            { kind: 'thread-update', threadId: 'thr-missing', status: 'resolved', note: 'x' },
+        ]);
+        expect(items.map(i => i.kind)).toEqual(['thread-open', 'thread-update']);
+
+        const opened = await resolveSuggestion(directories, projectId, items[0].id, 'accept', { thread: { title: 'The blank ledger', description: 'Every page is empty.' } });
+        expect(opened.thread).toMatchObject({ title: 'The blank ledger', description: 'Every page is empty.', status: 'open', openedIn: sceneId });
+
+        const updated = await resolveSuggestion(directories, projectId, items[1].id, 'accept');
+        expect(updated.thread).toMatchObject({ status: 'resolved', resolvedIn: sceneId, notes: [{ sceneId, text: 'Tom admits he is the buyer.' }] });
+        expect(listThreads(directories, projectId).map(t => t.title)).toEqual(['Who is the buyer?', 'The blank ledger']);
     });
 });

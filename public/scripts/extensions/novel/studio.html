@@ -83,11 +83,12 @@
 
         <aside class="ns-right">
             <div class="ns-tabs" role="tablist">
-                <button type="button" class="ns-tab active" data-tab="scene">Scene</button>
-                <button type="button" class="ns-tab" data-tab="codex">Codex</button>
-                <button type="button" class="ns-tab" data-tab="suggestions" title="Codex suggestions waiting for review">Review <span class="ns-badge" hidden></span></button>
-                <button type="button" class="ns-tab" data-tab="memory" title="Scene and chapter summaries and the book synopsis">Memory</button>
-                <button type="button" class="ns-tab" data-tab="history">History</button>
+                <button type="button" class="ns-tab active" data-tab="scene" title="Scene details"><i class="fa-solid fa-file-lines"></i><span class="ns-tab-label">Scene</span></button>
+                <button type="button" class="ns-tab" data-tab="codex" title="Codex and plot threads"><i class="fa-solid fa-book-bookmark"></i><span class="ns-tab-label">Codex</span></button>
+                <button type="button" class="ns-tab" data-tab="suggestions" title="Codex suggestions waiting for review"><i class="fa-solid fa-inbox"></i><span class="ns-tab-label">Review</span><span class="ns-badge" hidden></span></button>
+                <button type="button" class="ns-tab" data-tab="memory" title="Summaries and book synopsis"><i class="fa-solid fa-brain"></i><span class="ns-tab-label">Memory</span></button>
+                <button type="button" class="ns-tab" data-tab="ask" title="Ask questions about your story"><i class="fa-solid fa-comments"></i><span class="ns-tab-label">Ask</span></button>
+                <button type="button" class="ns-tab" data-tab="history" title="Snapshot history"><i class="fa-solid fa-clock-rotate-left"></i><span class="ns-tab-label">History</span></button>
             </div>
             <div class="ns-tab-panel" data-panel="scene">
                 <div class="ns-scene-meta">
@@ -128,6 +129,9 @@
                         <i class="fa-solid fa-wand-magic-sparkles"></i><span>Update codex from this scene</span>
                     </button>
                     <p class="ns-hint ns-analyze-status"></p>
+                    <button type="button" class="menu_button ns-check-continuity" title="Ask the background model to find contradictions with the codex and earlier scenes">
+                        <i class="fa-solid fa-list-check"></i><span>Check continuity</span>
+                    </button>
                 </div>
                 <div class="ns-chapter-meta">
                     <h4>Chapter</h4>
@@ -180,6 +184,22 @@
                 </div>
                 <h4>Chapters</h4>
                 <div class="ns-memory-chapters"></div>
+            </div>
+            <div class="ns-tab-panel ns-ask-panel" data-panel="ask" hidden>
+                <div class="ns-ask-messages">
+                    <p class="ns-hint ns-ask-empty">Ask anything about your manuscript: "What colour are Mara's eyes?", "When did Tom last see the letter?", "Which scenes take place at the lighthouse?" Answers come from the manuscript, codex and summaries, with links to the scenes.</p>
+                </div>
+                <form class="ns-ask-form">
+                    <textarea class="ns-ask-input text_pole" rows="3" maxlength="2000" placeholder="Ask about your story…"></textarea>
+                    <div class="ns-ask-controls">
+                        <select class="ns-ask-scope" title="Which part of the manuscript to search">
+                            <option value="all">Whole book</option>
+                            <option value="before">Up to this scene</option>
+                        </select>
+                        <button type="button" class="ns-icon-button ns-ask-clear fa-solid fa-broom" title="Clear the conversation"></button>
+                        <button type="submit" class="menu_button ns-ask-send"><i class="fa-solid fa-paper-plane"></i><span>Ask</span></button>
+                    </div>
+                </form>
             </div>
             <div class="ns-tab-panel" data-panel="history" hidden>
                 <p class="ns-hint">Snapshots are taken automatically every 10 minutes while you write, when you close the studio, and when you click Snapshot.</p>

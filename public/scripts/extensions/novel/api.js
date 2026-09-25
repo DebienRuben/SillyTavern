@@ -76,6 +76,18 @@ export const novelApi = {
      * @param {string} text @param {string} sourceHash Hash of the source the summary was written from
      */
     saveSummary: (id, level, key, text, sourceHash) => call('summaries/save', { id, level, key, text, sourceHash }),
+    /**
+     * @param {string} id
+     * @param {{ query: string, limit?: number, beforeSceneId?: string, excludeSceneIds?: string[], embedding?: { source: string, model?: string } }} options
+     * @returns {Promise<import('./ai/ask-logic.js').Passage[]>}
+     */
+    search: (id, options) => call('search', { id, ...options }),
+    /** @param {string} id @returns {Promise<any[]>} */
+    listThreads: (id) => call('threads/list', { id }),
+    /** @param {string} id @param {object} thread */
+    saveThread: (id, thread) => call('threads/save', { id, thread }),
+    /** @param {string} id @param {string} threadId */
+    deleteThread: (id, threadId) => call('threads/delete', { id, threadId }),
     /** @param {string} id @returns {Promise<any[]>} */
     listCodex: (id) => call('codex/list', { id }),
     /** @param {string} id @param {object} entity */

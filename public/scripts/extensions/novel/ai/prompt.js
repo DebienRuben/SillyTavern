@@ -29,6 +29,10 @@ const AFTER_CURSOR_SHARE = 0.1;
 const SYNOPSIS_SHARE = 0.08;
 /** Share of the flexible budget reserved for scene and chapter summaries of earlier story. */
 const SUMMARY_SHARE = 0.15;
+/** Share of the flexible budget reserved for passages retrieved from earlier in the book. */
+const RETRIEVAL_SHARE = 0.12;
+/** Share of the flexible budget for open plot threads. */
+const THREADS_SHARE = 0.05;
 /** Chapters this close to the current one are summarized per scene; older ones per chapter. */
 const SCENE_DETAIL_CHAPTERS = 1;
 /** Rough characters-per-token ratio; errs towards overestimating tokens. */
@@ -154,7 +158,18 @@ function tagged(tag, content) {
  * @property {{ scenes: PrecedingScene[], hasMore: boolean }} preceding Earlier scenes, newest first
  * @property {{ name: string, text: string }[]} [codex] Formatted codex entries, most important first
  * @property {import('./memory-logic.js').StoryMemory} [memory] Synopsis and summaries of the story before this scene
+ * @property {RetrievedPassage[]} [passages] Passages from earlier in the book relevant to this scene, most relevant first
+ * @property {{ title: string, text: string }[]} [threads] Open plot threads, formatted
  * @property {number} budgetTokens Maximum prompt size in tokens
+ */
+
+/**
+ * @typedef {object} RetrievedPassage
+ * @property {string} sceneId
+ * @property {number} chapterNumber
+ * @property {string} chapterTitle
+ * @property {string} sceneTitle
+ * @property {string} text
  */
 
 /**
@@ -239,30 +254,45 @@ export function buildWritingPrompt(input) {
         : '';
     const synopsisBlock = tagged('book_synopsis', laterNote + synopsisCut.text + (synopsisCut.truncated ? ' […]' : ''));
     flexibleChars -= synopsisBlock.length;
+    const threads = fitThreads(input.threads ?? [], Math.floor(flexibleChars * THREADS_SHARE));
+    flexibleChars -= threads.text.length;
     const hasSummaries = memory.priorScenes.some(scene => scene.summary.trim()) || memory.priorChapters.some(chapter => chapter.summary.trim());
     const summaryReserve = hasSummaries ? Math.floor(flexibleChars * SUMMARY_SHARE) : 0;
+    const passages = input.passages ?? [];
+    const retrievalReserve = passages.length ? Math.floor(flexibleChars * RETRIEVAL_SHARE) : 0;
 
-    // Earlier scenes word for word get everything else. Summaries then cover the story before them;
-    // if they need less than their reserve, a second pass gives the difference back to the prose.
-    let story = buildStorySoFar(input.preceding, flexibleChars - summaryReserve, hasSummaries);
+    // Earlier scenes word for word get everything else. Summaries and retrieved passages then cover
+    // what the prose does not; if they need less than their reserves, a second pass gives the
+    // difference back to the prose (keeping their first-pass sizes as caps, so the total still fits).
+    let story = buildStorySoFar(input.preceding, flexibleChars - summaryReserve - retrievalReserve, hasSummaries);
     let summary = buildStorySummary(memory, story, input.chapterNumber, summaryReserve);
-    const unused = summaryReserve - summary.text.length;
+    let retrieved = fitPassages(passages, story, retrievalReserve);
+    const unused = (summaryReserve - summary.text.length) + (retrievalReserve - retrieved.text.length);
     if (unused > 0 && story.truncated) {
-        story = buildStorySoFar(input.preceding, flexibleChars - summaryReserve + unused, hasSummaries);
-        summary = buildStorySummary(memory, story, input.chapterNumber, summaryReserve - unused);
+        const summaryCap = summary.text.length;
+        const retrievalCap = retrieved.text.length;
+        story = buildStorySoFar(input.preceding, flexibleChars - summaryCap - retrievalCap, hasSummaries);
+        summary = buildStorySummary(memory, story, input.chapterNumber, summaryCap);
+        retrieved = fitPassages(passages, story, retrievalCap);
     }
 
     if (synopsisBlock) {
         sections.push({ name: 'Book synopsis', tokens: estimateTokens(synopsisBlock), truncated: synopsisCut.truncated });
     }
+    if (threads.text) {
+        sections.push({ name: `Open plot threads (${threads.count})`, tokens: estimateTokens(threads.text), truncated: threads.omitted > 0 });
+    }
     if (summary.text) {
         sections.push({ name: `Summaries (${summary.unitCount})`, tokens: estimateTokens(summary.text), truncated: summary.truncated });
+    }
+    if (retrieved.text) {
+        sections.push({ name: `Relevant earlier passages (${retrieved.count})`, tokens: estimateTokens(retrieved.text), truncated: retrieved.omitted > 0 });
     }
     if (story.text) {
         sections.push({ name: `Earlier scenes (${story.sceneCount})`, tokens: estimateTokens(story.text), truncated: story.truncated });
     }
 
-    const user = [synopsisBlock, summary.text, story.text, chapterBrief, sceneBrief, codex.text, beforeBlock, selectionBlock, afterBlock, task]
+    const user = [synopsisBlock, threads.text, summary.text, retrieved.text, story.text, chapterBrief, sceneBrief, codex.text, beforeBlock, selectionBlock, afterBlock, task]
         .filter(Boolean)
         .join('\n\n');
 
@@ -279,6 +309,63 @@ export function buildWritingPrompt(input) {
         // Room for the target length plus slack, since tokens per word vary by model and language
         maxTokens: Math.ceil(outputWords * 2) + 400,
     };
+}
+
+/**
+ * Includes whole retrieved passages, most relevant first, leaving out scenes that are
+ * already included word for word. Shown in reading order.
+ * @param {RetrievedPassage[]} passages Passages, most relevant first
+ * @param {{ fullIds: Set<string> }} story Word-for-word scenes that were included
+ * @param {number} maxChars Character budget
+ * @returns {{ text: string, count: number, omitted: number }}
+ */
+function fitPassages(passages, story, maxChars) {
+    const candidates = passages.filter(passage => !story.fullIds.has(passage.sceneId));
+    const picked = [];
+    let used = 0;
+    for (const passage of candidates) {
+        const heading = `### ${chapterLabel(passage.chapterNumber, passage.chapterTitle)} · ${passage.sceneTitle || 'Untitled scene'} (excerpt)`;
+        const block = `${heading}\n${passage.text.trim()}`;
+        if (used + block.length + 2 > maxChars) {
+            continue;
+        }
+        picked.push({ passage, block });
+        used += block.length + 2;
+    }
+    if (picked.length === 0) {
+        return { text: '', count: 0, omitted: candidates.length };
+    }
+    // Reading order helps the model place each excerpt in the story
+    picked.sort((a, b) => a.passage.chapterNumber - b.passage.chapterNumber);
+    const intro = '[Excerpts from earlier in the manuscript that relate to this scene. Use them for consistency; do not repeat them.]\n\n';
+    return {
+        text: tagged('relevant_passages', intro + picked.map(entry => entry.block).join('\n\n')),
+        count: picked.length,
+        omitted: candidates.length - picked.length,
+    };
+}
+
+/**
+ * Lists open plot threads while they fit.
+ * @param {{ title: string, text: string }[]} threads Formatted threads
+ * @param {number} maxChars Character budget
+ * @returns {{ text: string, count: number, omitted: number }}
+ */
+function fitThreads(threads, maxChars) {
+    const lines = [];
+    let used = 0;
+    for (const thread of threads) {
+        const line = `- ${thread.text.trim()}`;
+        if (used + line.length + 1 > maxChars) {
+            continue;
+        }
+        lines.push(line);
+        used += line.length + 1;
+    }
+    if (lines.length === 0) {
+        return { text: '', count: 0, omitted: threads.length };
+    }
+    return { text: tagged('open_threads', lines.join('\n')), count: lines.length, omitted: threads.length - lines.length };
 }
 
 /**
@@ -424,12 +511,14 @@ function buildStorySummary(memory, story, chapterNumber, maxChars) {
 function buildTask(input) {
     const format = 'Respond with the prose only: no title, headings, notes or commentary, and no quotation marks around it. Use Markdown only for *italics* and **bold**.';
     const codexRule = input.codex?.length ? 'Treat <codex> as the source of truth for facts about characters, places and things, and their current state.' : '';
+    const threadRule = input.threads?.length ? 'Keep <open_threads> in mind: do not resolve or drop them unless the beats call for it.' : '';
 
     if (input.task === 'rewrite') {
         return tagged('task', [
             `Rewrite the passage in <passage_to_rewrite>. Instruction: ${input.instruction?.trim() || 'Improve the prose while keeping its meaning.'}`,
             'It must still fit seamlessly between <text_before> and <text_after>. Do not include that surrounding text.',
             codexRule,
+            threadRule,
             format,
         ].filter(Boolean).join('\n'));
     }
@@ -444,9 +533,7 @@ function buildTask(input) {
     if (input.scene.beats?.trim()) {
         lines.push('Stay within the scene\'s beats and follow them in order.');
     }
-    if (codexRule) {
-        lines.push(codexRule);
-    }
+    lines.push(...[codexRule, threadRule].filter(Boolean));
     lines.push(format);
     return tagged('task', lines.join('\n'));
 }
@@ -460,7 +547,7 @@ export function countWords(text) {
     return text.match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu)?.length ?? 0;
 }
 
-const PROMPT_TAGS = ['book_synopsis', 'story_summary', 'story_so_far', 'current_chapter', 'current_scene', 'codex', 'scene_text', 'text_before', 'text_after', 'passage_to_rewrite', 'task'];
+const PROMPT_TAGS = ['book_synopsis', 'open_threads', 'story_summary', 'relevant_passages', 'story_so_far', 'current_chapter', 'current_scene', 'codex', 'scene_text', 'text_before', 'text_after', 'passage_to_rewrite', 'task'];
 
 /**
  * Cleans model output: removes code fences, echoed prompt tags and a leading "Here is…" line.

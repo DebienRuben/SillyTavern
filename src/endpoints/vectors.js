@@ -105,7 +105,7 @@ async function getVector(source, sourceSettings, text, isQuery, directories) {
  * @param {import('../users.js').UserDirectoryList} directories - The directories object for the user
  * @returns {Promise<number[][]>} - The array of vectors for the texts
  */
-async function getBatchVector(source, sourceSettings, texts, isQuery, directories) {
+export async function getBatchVector(source, sourceSettings, texts, isQuery, directories) {
     const batchSize = 10;
     const batches = Array(Math.ceil(texts.length / batchSize)).fill(undefined).map((_, i) => texts.slice(i * batchSize, i * batchSize + batchSize));
 

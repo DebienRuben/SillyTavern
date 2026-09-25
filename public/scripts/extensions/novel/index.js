@@ -20,6 +20,9 @@ const DEFAULT_SETTINGS = Object.freeze({
         /** Custom writer instructions; empty means the built-in default. */
         instructions: '',
         lastRewriteInstruction: '',
+        /** Semantic search: 'none' (keywords only), 'transformers' (local model) or 'openrouter'. */
+        embeddingSource: 'none',
+        embeddingModel: '',
     },
 });
 

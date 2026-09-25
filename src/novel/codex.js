@@ -19,10 +19,15 @@ export const ENTITY_TYPES = Object.freeze(['character', 'location', 'item', 'fac
 /** Facets of an entity that can change during the story. */
 export const STATE_FIELDS = Object.freeze(['location', 'condition', 'goals', 'relationships', 'possessions', 'knowledge']);
 
+export const THREAD_STATUSES = Object.freeze(['open', 'resolved']);
+
 const FORMAT_VERSION = 1;
 const MAX_ALIASES = 20;
 const MAX_SUGGESTIONS = 500;
+const MAX_THREAD_NOTES = 200;
 const LIMITS = Object.freeze({
+    title: 200,
+    note: 2000,
     name: 200,
     alias: 100,
     description: 20000,
@@ -215,9 +220,10 @@ function readSuggestions(paths) {
  * @param {any} input Suggestion from the client
  * @param {string} sceneId Scene the suggestion comes from
  * @param {any[]} entities Existing entities
+ * @param {any[]} threads Existing plot threads
  * @returns {object | null} Normalized suggestion, or null if it is unusable
  */
-function normalizeSuggestion(input, sceneId, entities) {
+function normalizeSuggestion(input, sceneId, entities, threads) {
     const changes = pickStateChanges(input?.changes);
     const evidence = text(input?.evidence, LIMITS.evidence).trim();
 
@@ -226,6 +232,29 @@ function normalizeSuggestion(input, sceneId, entities) {
             return null;
         }
         return { id: newId('sug'), kind: 'update', sceneId, entityId: input.entityId, changes, evidence, createdAt: Date.now() };
+    }
+    if (input?.kind === 'thread-open') {
+        const title = text(input.thread?.title, LIMITS.title).trim();
+        if (!title || findThreadByTitle(threads, title)) {
+            return null;
+        }
+        return {
+            id: newId('sug'),
+            kind: 'thread-open',
+            sceneId,
+            thread: { title, description: text(input.thread.description, LIMITS.description).trim() },
+            evidence,
+            createdAt: Date.now(),
+        };
+    }
+    if (input?.kind === 'thread-update') {
+        const note = text(input.note, LIMITS.note).trim();
+        const status = THREAD_STATUSES.includes(input.status) ? input.status : 'open';
+        const thread = threads.find(t => t.id === input.threadId);
+        if (!thread || (!note && status === thread.status)) {
+            return null;
+        }
+        return { id: newId('sug'), kind: 'thread-update', sceneId, threadId: thread.id, status, note, evidence, createdAt: Date.now() };
     }
     if (input?.kind === 'create') {
         const name = text(input.entity?.name, LIMITS.name).trim();
@@ -277,8 +306,9 @@ export async function replaceSceneSuggestions(directories, projectId, sceneId, i
     return withLock(projectId, async () => {
         readProjectFiles(paths);
         const entities = readEntities(paths);
+        const threads = readThreads(paths).items;
         const suggestions = readSuggestions(paths);
-        const fresh = items.map(item => normalizeSuggestion(item, sceneId, entities)).filter(Boolean);
+        const fresh = items.map(item => normalizeSuggestion(item, sceneId, entities, threads)).filter(Boolean);
         suggestions.items = [...suggestions.items.filter(item => item.sceneId !== sceneId), ...fresh].slice(-MAX_SUGGESTIONS);
         writeJson(paths.suggestions, suggestions);
         return suggestions.items;
@@ -293,7 +323,7 @@ export async function replaceSceneSuggestions(directories, projectId, sceneId, i
  * @param {string} suggestionId Suggestion ID
  * @param {'accept' | 'reject'} action What to do
  * @param {any} [edits] Author's edits to the suggestion ({ changes, entity })
- * @returns {Promise<{ entity: any | null }>} The created or updated entity when accepted
+ * @returns {Promise<{ entity: any | null, thread?: any | null }>} The created or updated entity or thread when accepted
  */
 export async function resolveSuggestion(directories, projectId, suggestionId, action, edits) {
     if (action !== 'accept' && action !== 'reject') {
@@ -309,7 +339,10 @@ export async function resolveSuggestion(directories, projectId, suggestionId, ac
         }
 
         let entity = null;
-        if (action === 'accept') {
+        let thread = null;
+        if (action === 'accept' && suggestion.kind.startsWith('thread-')) {
+            thread = acceptThreadSuggestion(paths, suggestion, edits);
+        } else if (action === 'accept') {
             const entities = readEntities(paths);
             const changes = edits?.changes ? pickStateChanges(edits.changes) : suggestion.changes;
             const now = Date.now();
@@ -344,6 +377,154 @@ export async function resolveSuggestion(directories, projectId, suggestionId, ac
 
         suggestions.items = suggestions.items.filter(item => item.id !== suggestionId);
         writeJson(paths.suggestions, suggestions);
-        return { entity };
+        return { entity, thread };
+    });
+}
+
+// ---- Plot threads ----
+
+/**
+ * @param {ReturnType<typeof projectPaths>} paths Project paths
+ * @returns {{ version: number, items: any[] }}
+ */
+function readThreads(paths) {
+    const data = readJson(paths.threads);
+    return { version: FORMAT_VERSION, items: Array.isArray(data?.items) ? data.items : [] };
+}
+
+/**
+ * @param {any[]} threads
+ * @param {string} title
+ * @param {string} [exceptId]
+ */
+function findThreadByTitle(threads, title, exceptId) {
+    const needle = title.trim().toLowerCase();
+    return threads.find(thread => thread.id !== exceptId && thread.title.toLowerCase() === needle);
+}
+
+/**
+ * Validates a plot thread from the client.
+ * @param {any} input Thread from the client
+ * @param {any} [previous] Stored thread, when updating
+ */
+function normalizeThread(input, previous) {
+    const title = text(input?.title, LIMITS.title).trim();
+    if (!title) {
+        throw new NovelError(400, 'A plot thread needs a title');
+    }
+    const sceneIdOrNull = (/** @type {unknown} */ id) => typeof id === 'string' && ID_PATTERN.test(id) ? id : null;
+    const status = THREAD_STATUSES.includes(input.status) ? input.status : 'open';
+    const now = Date.now();
+    return {
+        id: previous?.id ?? newId('thr'),
+        title,
+        description: text(input.description, LIMITS.description).trim(),
+        status,
+        openedIn: sceneIdOrNull(input.openedIn),
+        resolvedIn: status === 'resolved' ? sceneIdOrNull(input.resolvedIn) : null,
+        notes: (Array.isArray(input.notes) ? input.notes : [])
+            .map((/** @type {any} */ note) => ({ sceneId: sceneIdOrNull(note?.sceneId), text: text(note?.text, LIMITS.note).trim() }))
+            .filter((/** @type {any} */ note) => note.text)
+            .slice(-MAX_THREAD_NOTES),
+        createdAt: previous?.createdAt ?? now,
+        updatedAt: now,
+    };
+}
+
+/**
+ * Applies an accepted thread suggestion. Must be called while holding the project lock.
+ * @param {ReturnType<typeof projectPaths>} paths Project paths
+ * @param {any} suggestion Thread suggestion
+ * @param {any} [edits] Author's edits ({ thread } or { status, note })
+ */
+function acceptThreadSuggestion(paths, suggestion, edits) {
+    const threads = readThreads(paths);
+    let thread;
+    if (suggestion.kind === 'thread-open') {
+        const proposed = { ...suggestion.thread, ...(edits?.thread ?? {}) };
+        const clash = findThreadByTitle(threads.items, text(proposed.title, LIMITS.title));
+        if (clash) {
+            throw new NovelError(409, `A plot thread called "${clash.title}" already exists`);
+        }
+        thread = normalizeThread({ ...proposed, status: 'open', openedIn: suggestion.sceneId, notes: [] });
+        threads.items.push(thread);
+    } else {
+        thread = threads.items.find(t => t.id === suggestion.threadId);
+        if (!thread) {
+            throw new NovelError(404, 'The plot thread of this suggestion no longer exists');
+        }
+        const status = THREAD_STATUSES.includes(edits?.status) ? edits.status : suggestion.status;
+        const note = text(edits?.note ?? suggestion.note, LIMITS.note).trim();
+        if (note) {
+            thread.notes = [...thread.notes, { sceneId: suggestion.sceneId, text: note }].slice(-MAX_THREAD_NOTES);
+        }
+        thread.status = status;
+        thread.resolvedIn = status === 'resolved' ? suggestion.sceneId : null;
+        thread.updatedAt = Date.now();
+    }
+    writeJson(paths.threads, threads);
+    return thread;
+}
+
+/**
+ * Lists the plot threads of a project.
+ * @param {import('../users.js').UserDirectoryList} directories User directories
+ * @param {string} projectId Project ID
+ */
+export function listThreads(directories, projectId) {
+    const paths = projectPaths(directories, projectId);
+    readProjectFiles(paths);
+    return readThreads(paths).items;
+}
+
+/**
+ * Creates or updates a plot thread.
+ * @param {import('../users.js').UserDirectoryList} directories User directories
+ * @param {string} projectId Project ID
+ * @param {any} input Thread from the client; without an ID a new thread is created
+ */
+export async function saveThread(directories, projectId, input) {
+    const paths = projectPaths(directories, projectId);
+    return withLock(projectId, async () => {
+        readProjectFiles(paths);
+        const threads = readThreads(paths);
+        const index = input?.id ? threads.items.findIndex(t => t.id === input.id) : -1;
+        if (input?.id && index === -1) {
+            throw new NovelError(404, 'Plot thread not found');
+        }
+        const thread = normalizeThread(input, index === -1 ? undefined : threads.items[index]);
+        const clash = findThreadByTitle(threads.items, thread.title, thread.id);
+        if (clash) {
+            throw new NovelError(409, `A plot thread called "${clash.title}" already exists`);
+        }
+        if (index === -1) {
+            threads.items.push(thread);
+        } else {
+            threads.items[index] = thread;
+        }
+        writeJson(paths.threads, threads);
+        return thread;
+    });
+}
+
+/**
+ * Deletes a plot thread and its pending suggestions.
+ * @param {import('../users.js').UserDirectoryList} directories User directories
+ * @param {string} projectId Project ID
+ * @param {string} threadId Thread ID
+ */
+export async function deleteThread(directories, projectId, threadId) {
+    const paths = projectPaths(directories, projectId);
+    return withLock(projectId, async () => {
+        readProjectFiles(paths);
+        const threads = readThreads(paths);
+        if (!threads.items.some(t => t.id === threadId)) {
+            throw new NovelError(404, 'Plot thread not found');
+        }
+        threads.items = threads.items.filter(t => t.id !== threadId);
+        writeJson(paths.threads, threads);
+        const suggestions = readSuggestions(paths);
+        suggestions.items = suggestions.items.filter(item => item.threadId !== threadId);
+        writeJson(paths.suggestions, suggestions);
     });
 }

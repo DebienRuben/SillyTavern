@@ -7,6 +7,8 @@ import {
     EXTRACTION_SCHEMA,
     extractionToSuggestions,
     formatEntityForPrompt,
+    formatThreadForPrompt,
+    openThreadsAt,
     sceneOrder,
     selectRelevantEntities,
     STATE_FIELDS,
@@ -34,6 +36,8 @@ export class CodexPanel {
     entities = [];
     /** @type {any[]} */
     suggestions = [];
+    /** @type {any[]} */
+    threads = [];
     /** @type {import('./studio.js').NovelStudio} */
     #studio;
     /** @type {JQuery<HTMLElement>} */
@@ -60,15 +64,17 @@ export class CodexPanel {
     /** Loads the codex and suggestions of the open project. */
     async load() {
         const projectId = this.#project.id;
-        const [entities, suggestions] = await Promise.all([
+        const [entities, suggestions, threads] = await Promise.all([
             novelApi.listCodex(projectId),
             novelApi.listSuggestions(projectId),
+            novelApi.listThreads(projectId),
         ]);
         if (this.#project?.id !== projectId) {
             return;
         }
         this.entities = entities;
         this.suggestions = suggestions;
+        this.threads = threads;
         this.renderAll();
     }
 
@@ -76,6 +82,7 @@ export class CodexPanel {
     clear() {
         this.entities = [];
         this.suggestions = [];
+        this.threads = [];
         this.#analyzingSceneId = null;
         this.renderAll();
     }
@@ -103,6 +110,16 @@ export class CodexPanel {
             }));
     }
 
+    /**
+     * Formats the plot threads open when a scene begins, for a writing prompt.
+     * @param {string} sceneId Scene being written
+     * @returns {{ title: string, text: string }[]}
+     */
+    threadsForPrompt(sceneId) {
+        const order = sceneOrder(this.#studio.structure);
+        return openThreadsAt(this.threads, order, sceneId).map(thread => formatThreadForPrompt(thread, order, sceneId));
+    }
+
     // ---- Codex list ----
 
     renderList() {
@@ -110,6 +127,12 @@ export class CodexPanel {
         if (!this.#project) {
             return;
         }
+        this.#renderEntities($list);
+        this.#renderThreads($list);
+    }
+
+    /** @param {JQuery<HTMLElement>} $list */
+    #renderEntities($list) {
         const query = String(this.#root.find('.ns-codex-search').val() ?? '').trim().toLowerCase();
         const order = sceneOrder(this.#studio.structure);
         const matches = this.entities.filter(entity => !query
@@ -147,6 +170,103 @@ export class CodexPanel {
                 }
                 $list.append($item);
             }
+        }
+    }
+
+    /** @param {JQuery<HTMLElement>} $list */
+    #renderThreads($list) {
+        const query = String(this.#root.find('.ns-codex-search').val() ?? '').trim().toLowerCase();
+        const $header = $('<div class="ns-codex-group ns-thread-group">').append($('<span>').text('Plot threads'));
+        $header.append('<button type="button" class="ns-icon-button ns-thread-new fa-solid fa-plus" title="New plot thread"></button>');
+        $list.append($header);
+
+        const matches = this.threads
+            .filter(thread => !query || [thread.title, thread.description].some(value => value?.toLowerCase().includes(query)))
+            .sort((a, b) => (a.status === b.status ? 0 : a.status === 'open' ? -1 : 1));
+        if (this.threads.length === 0) {
+            $list.append('<p class="ns-hint">No plot threads yet. Scene analysis suggests them, or add one with +.</p>');
+            return;
+        }
+        for (const thread of matches) {
+            const $item = $('<div class="ns-codex-item ns-thread-item" tabindex="0">').attr('data-thread-id', thread.id).attr('data-status', thread.status);
+            $item.append($('<div class="ns-codex-name">').text(thread.title).append($('<span class="ns-thread-status">').text(thread.status)));
+            const latest = thread.notes?.at(-1)?.text;
+            const detail = latest ? `Latest: ${latest}` : thread.description;
+            if (detail) {
+                $item.append($('<div class="ns-codex-state">').text(detail));
+            }
+            $list.append($item);
+        }
+    }
+
+    /**
+     * Opens the editor for a plot thread.
+     * @param {any} [thread] Thread to edit; omit to create one
+     */
+    async editThread(thread) {
+        const values = thread ?? { title: '', description: '', status: 'open', openedIn: this.#studio.editor.sceneId, notes: [] };
+        const $form = $('<div class="ns-project-form"></div>');
+        $form.append($('<h3>').text(thread ? thread.title : 'New plot thread'));
+        const $title = $('<input type="text" class="text_pole" maxlength="200" placeholder="e.g. Who is the buyer?">').val(values.title);
+        const $description = $('<textarea class="text_pole" rows="3" maxlength="20000" placeholder="What the reader is waiting to find out, or what needs a payoff.">').val(values.description);
+        const $status = $('<select class="text_pole"><option value="open">Open</option><option value="resolved">Resolved</option></select>').val(values.status);
+        $form.append($('<label>').text('Title').append($title));
+        $form.append($('<label>').text('Description').append($description));
+        $form.append($('<label>').text('Status').append($status));
+        const opened = values.openedIn ? this.#sceneLabel(values.openedIn) : 'unknown';
+        const resolved = values.resolvedIn ? ` · resolved in ${this.#sceneLabel(values.resolvedIn)}` : '';
+        $form.append($('<p class="ns-hint">').text(`Opened in ${opened}${resolved}`));
+        if (values.notes.length) {
+            const $notes = $('<ul class="ns-thread-notes">');
+            for (const note of values.notes) {
+                $notes.append($('<li>').append($('<b>').text(`${note.sceneId ? this.#sceneLabel(note.sceneId) : 'Note'}: `)).append(document.createTextNode(note.text)));
+            }
+            $form.append($('<h4>').text('Developments'), $notes);
+        }
+
+        const result = await callGenericPopup($form, POPUP_TYPE.CONFIRM, '', {
+            okButton: 'Save',
+            cancelButton: 'Cancel',
+            wide: true,
+            allowVerticalScrolling: true,
+            customButtons: thread ? [{ text: 'Delete thread', result: POPUP_RESULT.CUSTOM1, classes: ['ns-danger'] }] : null,
+        });
+        try {
+            if (result === POPUP_RESULT.CUSTOM1 && thread) {
+                const confirmed = await callGenericPopup(`Delete the plot thread "${thread.title}"?`, POPUP_TYPE.CONFIRM, '', { okButton: 'Delete', cancelButton: 'Cancel' });
+                if (confirmed === POPUP_RESULT.AFFIRMATIVE) {
+                    await novelApi.deleteThread(this.#project.id, thread.id);
+                    this.threads = this.threads.filter(t => t.id !== thread.id);
+                    this.suggestions = this.suggestions.filter(s => s.threadId !== thread.id);
+                    this.renderAll();
+                }
+                return;
+            }
+            if (result !== POPUP_RESULT.AFFIRMATIVE) {
+                return;
+            }
+            const status = String($status.val());
+            const saved = await novelApi.saveThread(this.#project.id, {
+                ...values,
+                title: String($title.val()),
+                description: String($description.val()),
+                status,
+                resolvedIn: status === 'resolved' ? (values.resolvedIn ?? this.#studio.editor.sceneId) : null,
+            });
+            this.#upsertThread(saved);
+            this.renderAll();
+        } catch (error) {
+            toastr.error(`Could not save the plot thread: ${error.message}`, 'Novel Studio');
+        }
+    }
+
+    /** @param {any} thread */
+    #upsertThread(thread) {
+        const index = this.threads.findIndex(t => t.id === thread.id);
+        if (index === -1) {
+            this.threads.push(thread);
+        } else {
+            this.threads[index] = thread;
         }
     }
 
@@ -390,7 +510,9 @@ export class CodexPanel {
 
             const order = sceneOrder(studio.structure);
             const known = this.entities.map(entity => ({ entity, state: stateAsOf(entity, order, sceneId) }));
-            const input = { project: studio.project, chapter: found.chapter, chapterNumber: found.chapterNumber, scene: found.scene, sceneText, known };
+            // Threads open at this scene, plus any already opened by it (so re-analysis does not suggest them again)
+            const threads = [...new Set([...openThreadsAt(this.threads, order, sceneId), ...this.threads.filter(t => t.openedIn === sceneId)])];
+            const input = { project: studio.project, chapter: found.chapter, chapterNumber: found.chapterNumber, scene: found.scene, sceneText, known, threads };
             const result = await requestJson({
                 profileId: this.#settings.backgroundProfileId,
                 role: 'background',
@@ -402,7 +524,7 @@ export class CodexPanel {
             if (this.#project?.id !== projectId) {
                 return;
             }
-            const items = extractionToSuggestions(result, known);
+            const items = extractionToSuggestions(result, known, this.threads);
             this.suggestions = await novelApi.replaceSuggestions(projectId, sceneId, items);
             this.renderSuggestions();
 
@@ -470,6 +592,9 @@ export class CodexPanel {
         const $header = $('<div class="ns-suggestion-header">');
         const entity = this.entities.find(e => e.id === suggestion.entityId);
 
+        if (suggestion.kind === 'thread-open' || suggestion.kind === 'thread-update') {
+            return this.#renderThreadSuggestion($card, $header, suggestion);
+        }
         if (suggestion.kind === 'update') {
             $header.append($('<b>').text(entity?.name ?? 'Unknown entry'));
             $header.append($('<span>').text(' changes'));
@@ -512,6 +637,37 @@ export class CodexPanel {
     }
 
     /**
+     * Fills a card for a plot thread suggestion.
+     * @param {JQuery<HTMLElement>} $card
+     * @param {JQuery<HTMLElement>} $header
+     * @param {any} suggestion
+     * @returns {JQuery<HTMLElement>}
+     */
+    #renderThreadSuggestion($card, $header, suggestion) {
+        if (suggestion.kind === 'thread-open') {
+            $header.append($('<span>').text('New plot thread: ')).append($('<b>').text(suggestion.thread.title));
+            $card.append($header, $('<div class="ns-suggestion-scene">').text(this.#sceneLabel(suggestion.sceneId)));
+            $card.append($('<label>').text('Title').append($('<input type="text" class="text_pole" data-thread="title" maxlength="200">').val(suggestion.thread.title)));
+            $card.append($('<label>').text('Description').append($('<textarea class="text_pole" rows="2" data-thread="description" maxlength="20000">').val(suggestion.thread.description)));
+        } else {
+            const thread = this.threads.find(t => t.id === suggestion.threadId);
+            $header.append($('<span>').text('Plot thread ')).append($('<b>').text(thread?.title ?? 'Unknown thread'))
+                .append($('<span>').text(suggestion.status === 'resolved' ? ' is resolved' : ' develops'));
+            $card.append($header, $('<div class="ns-suggestion-scene">').text(this.#sceneLabel(suggestion.sceneId)));
+            const $status = $('<select class="text_pole" data-thread="status"><option value="open">Still open</option><option value="resolved">Resolved</option></select>').val(suggestion.status);
+            $card.append($('<label>').text('Status').append($status));
+            $card.append($('<label>').text('What changed').append($('<textarea class="text_pole" rows="2" data-thread="note" maxlength="2000">').val(suggestion.note)));
+        }
+        if (suggestion.evidence) {
+            $card.append($('<blockquote class="ns-suggestion-evidence">').text(suggestion.evidence));
+        }
+        const $actions = $('<div class="ns-suggestion-actions">');
+        $actions.append('<button type="button" class="menu_button ns-suggestion-accept">Accept</button>');
+        $actions.append('<button type="button" class="menu_button ns-suggestion-reject">Reject</button>');
+        return $card.append($actions);
+    }
+
+    /**
      * Reads the author's edits from a suggestion card.
      * @param {JQuery<HTMLElement>} $card
      */
@@ -520,8 +676,15 @@ export class CodexPanel {
         $card.find('[data-field]').each((_, input) => {
             changes[input.dataset.field] = String($(input).val());
         });
+        const kind = $card.attr('data-kind');
+        if (kind === 'thread-open') {
+            return { thread: { title: String($card.find('[data-thread="title"]').val()), description: String($card.find('[data-thread="description"]').val()) } };
+        }
+        if (kind === 'thread-update') {
+            return { status: String($card.find('[data-thread="status"]').val()), note: String($card.find('[data-thread="note"]').val()) };
+        }
         const edits = { changes };
-        if ($card.attr('data-kind') === 'create') {
+        if (kind === 'create') {
             edits.entity = {
                 name: String($card.find('[data-entity="name"]').val()),
                 type: String($card.find('[data-entity="type"]').val()),
@@ -543,9 +706,12 @@ export class CodexPanel {
         const edits = action === 'accept' ? this.#readEdits($card) : undefined;
         $card.find('button').prop('disabled', true);
         try {
-            const { entity } = await novelApi.resolveSuggestion(this.#project.id, suggestionId, action, edits);
+            const { entity, thread } = await novelApi.resolveSuggestion(this.#project.id, suggestionId, action, edits);
             if (entity) {
                 this.#upsertEntity(entity);
+            }
+            if (thread) {
+                this.#upsertThread(thread);
             }
             this.suggestions = this.suggestions.filter(s => s.id !== suggestionId);
             return true;
@@ -565,7 +731,8 @@ export class CodexPanel {
             }
         }
         // New entries first, so updates that mention them apply after they exist
-        const ordered = [...this.suggestions].sort((a, b) => (a.kind === 'create' ? 0 : 1) - (b.kind === 'create' ? 0 : 1));
+        const creates = new Set(['create', 'thread-open']);
+        const ordered = [...this.suggestions].sort((a, b) => (creates.has(a.kind) ? 0 : 1) - (creates.has(b.kind) ? 0 : 1));
         for (const suggestion of ordered) {
             await this.#resolve(suggestion.id, action);
         }
@@ -578,6 +745,16 @@ export class CodexPanel {
         const $root = this.#root;
         $root.on('input', '.ns-codex-search', () => this.renderList());
         $root.on('click', '.ns-codex-new', () => this.editEntity());
+        $root.on('click', '.ns-thread-new', () => this.editThread());
+        $root.on('click keydown', '.ns-thread-item', (event) => {
+            if (event.type === 'keydown' && event.key !== 'Enter') {
+                return;
+            }
+            const thread = this.threads.find(t => t.id === event.currentTarget.dataset.threadId);
+            if (thread) {
+                this.editThread(thread);
+            }
+        });
         $root.on('click keydown', '.ns-codex-item', (event) => {
             if (event.type === 'keydown' && event.key !== 'Enter') {
                 return;

@@ -21,6 +21,20 @@
             <small>Maximum prompt size. Larger means more of the story is sent, and each request costs more.</small>
         </label>
     </div>
+    <div class="ns-form-row">
+        <label>Manuscript search
+            <select data-name="embeddingSource" class="text_pole">
+                <option value="none">Keywords only</option>
+                <option value="transformers">Keywords + meaning (local model, free)</option>
+                <option value="openrouter">Keywords + meaning (OpenRouter)</option>
+            </select>
+            <small>Search finds earlier passages for writing, Ask and continuity checks. "Meaning" also finds passages that use different words; the local model downloads once (about 150 MB) and runs on this computer.</small>
+        </label>
+        <label>Embedding model (OpenRouter)
+            <input type="text" data-name="embeddingModel" class="text_pole" maxlength="200" placeholder="openai/text-embedding-3-small" />
+            <small>Only used with OpenRouter. Uses your OpenRouter API key.</small>
+        </label>
+    </div>
     <label>Writer instructions
         <textarea data-name="instructions" class="text_pole" rows="10" maxlength="20000"></textarea>
         <small>Sent with every writing request, before the novel's own style guide.</small>

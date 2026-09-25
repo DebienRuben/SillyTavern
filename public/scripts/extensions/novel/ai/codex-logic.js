@@ -191,8 +191,24 @@ export const EXTRACTION_SCHEMA = Object.freeze({
     value: {
         type: 'object',
         additionalProperties: false,
-        required: ['updates', 'newEntities'],
+        required: ['updates', 'newEntities', 'threads'],
         properties: {
+            threads: {
+                type: 'array',
+                items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['action', 'threadId', 'title', 'description', 'note', 'evidence'],
+                    properties: {
+                        action: { type: 'string', enum: ['open', 'advance', 'resolve'] },
+                        threadId: { type: 'string' },
+                        title: { type: 'string' },
+                        description: { type: 'string' },
+                        note: { type: 'string' },
+                        evidence: { type: 'string' },
+                    },
+                },
+            },
             updates: {
                 type: 'array',
                 items: {
@@ -231,10 +247,11 @@ export const EXTRACTION_SCHEMA = Object.freeze({
  * @param {any} input.scene Scene metadata
  * @param {string} input.sceneText Scene prose
  * @param {{ entity: any, state: Record<string, string> }[]} input.known Entities with their recorded state up to and including the scene
+ * @param {any[]} [input.threads] Plot threads open at this scene
  * @param {boolean} [input.jsonInstructions] Also describe the JSON format in the prompt (for models without schema support)
  * @returns {{ role: 'system' | 'user', content: string }[]}
  */
-export function buildExtractionMessages({ project, chapter, chapterNumber, scene, sceneText, known, jsonInstructions = false }) {
+export function buildExtractionMessages({ project, chapter, chapterNumber, scene, sceneText, known, threads = [], jsonInstructions = false }) {
     const system = [
         'You maintain the codex (story bible) of a novel: its characters, locations, items, factions and lore, and how their state changes over the story.',
         'Read the scene and report what it changes. Be precise and conservative: report only what the scene shows or clearly implies. Never invent facts.',
@@ -274,13 +291,20 @@ export function buildExtractionMessages({ project, chapter, chapterNumber, scene
         '',
         '2. "newEntities": characters, locations, items, factions or lore that matter to the story and are NOT in the codex yet. Skip unnamed or one-off walk-ons.',
         '   Give type, name, the other names the text uses for it (aliases), a description of only what the text establishes, its state fields as of the end of the scene ("" if unknown), and evidence.',
+        '',
+        '3. "threads": plot threads, meaning mysteries, promises, secrets, goals, conflicts or setups that need a payoff later.',
+        '   - "open": a new thread this scene introduces (threadId "", a short title, and a one-sentence description).',
+        '   - "advance": the scene develops a thread in <open_threads> (use its threadId; note what changed).',
+        '   - "resolve": the scene pays off or closes a thread in <open_threads> (use its threadId; note how).',
+        '   Only real story threads; not every detail. Leave out threads the scene does not touch.',
     ];
     if (jsonInstructions) {
         instructions.push(
             '',
             'Respond with a single JSON object and nothing else, in this shape:',
             '{"updates":[{"entityId":"","location":"","condition":"","goals":"","relationships":"","possessions":"","knowledge":"","evidence":""}],'
-            + '"newEntities":[{"type":"character","name":"","aliases":[],"description":"","location":"","condition":"","goals":"","relationships":"","possessions":"","knowledge":"","evidence":""}]}',
+            + '"newEntities":[{"type":"character","name":"","aliases":[],"description":"","location":"","condition":"","goals":"","relationships":"","possessions":"","knowledge":"","evidence":""}],'
+            + '"threads":[{"action":"open","threadId":"","title":"","description":"","note":"","evidence":""}]}',
         );
     }
 
@@ -295,6 +319,7 @@ export function buildExtractionMessages({ project, chapter, chapterNumber, scene
 
     const user = [
         `<codex>\n${knownText}\n</codex>`,
+        `<open_threads>\n${threads.length ? threads.map(thread => `- id: ${thread.id}\n  title: ${thread.title}${thread.description ? `\n  description: ${thread.description}` : ''}`).join('\n') : '(No open plot threads.)'}\n</open_threads>`,
         `<scene>\n${meta}\n\n${sceneText.trim()}\n</scene>`,
         `<instructions>\n${instructions.join('\n')}\n</instructions>`,
     ].join('\n\n');
@@ -350,9 +375,10 @@ function changedFields(source, current) {
  * fields and unknown IDs, and turns "new" entities that already exist into updates.
  * @param {any} result Parsed extraction result
  * @param {{ entity: any, state: Record<string, string> }[]} known Entities with their recorded state
- * @returns {{ kind: 'update' | 'create', entityId?: string, entity?: any, changes: Record<string, string>, evidence: string }[]}
+ * @param {any[]} [threads] Known plot threads
+ * @returns {any[]} Suggestions for the server
  */
-export function extractionToSuggestions(result, known) {
+export function extractionToSuggestions(result, known, threads = []) {
     const byId = new Map(known.map(item => [item.entity.id, item]));
     const byName = new Map();
     for (const item of known) {
@@ -414,5 +440,80 @@ export function extractionToSuggestions(result, known) {
         });
     }
 
-    return [...updates.values(), ...creates];
+    return [...updates.values(), ...creates, ...threadSuggestions(result?.threads, threads)];
+}
+
+/**
+ * Turns extracted plot thread changes into suggestions. New threads whose title already
+ * exists become updates of that thread.
+ * @param {unknown} extracted Extracted thread changes
+ * @param {any[]} threads Known plot threads
+ * @returns {any[]}
+ */
+function threadSuggestions(extracted, threads) {
+    const byId = new Map(threads.map(thread => [thread.id, thread]));
+    const byTitle = new Map(threads.map(thread => [thread.title.trim().toLowerCase(), thread]));
+    const suggestions = [];
+    const seen = new Set();
+
+    for (const item of Array.isArray(extracted) ? extracted : []) {
+        const title = String(item?.title ?? '').trim();
+        const evidence = String(item?.evidence ?? '').trim();
+        const note = String(item?.note ?? '').trim();
+        const known = byId.get(item?.threadId) ?? byTitle.get(title.toLowerCase());
+
+        if (known) {
+            if (seen.has(known.id)) {
+                continue;
+            }
+            const status = item.action === 'resolve' ? 'resolved' : 'open';
+            if (!note && status === known.status) {
+                continue;
+            }
+            seen.add(known.id);
+            suggestions.push({ kind: 'thread-update', threadId: known.id, status, note, evidence });
+        } else if (item?.action === 'open' && title && !seen.has(title.toLowerCase())) {
+            seen.add(title.toLowerCase());
+            suggestions.push({ kind: 'thread-open', thread: { title, description: String(item.description ?? '').trim() }, evidence });
+        }
+    }
+    return suggestions;
+}
+
+/**
+ * Lists the plot threads open when a scene begins: opened earlier and not yet resolved.
+ * Threads without a known opening scene count as open from the start.
+ * @param {any[]} threads All plot threads
+ * @param {Map<string, number>} order Scene order from sceneOrder()
+ * @param {string} sceneId Current scene
+ * @returns {any[]}
+ */
+export function openThreadsAt(threads, order, sceneId) {
+    const position = order.get(sceneId) ?? Infinity;
+    return threads.filter((thread) => {
+        const opened = thread.openedIn && order.has(thread.openedIn) ? order.get(thread.openedIn) : -1;
+        const resolved = thread.status === 'resolved' && thread.resolvedIn && order.has(thread.resolvedIn) ? order.get(thread.resolvedIn) : Infinity;
+        const resolvedWithoutScene = thread.status === 'resolved' && !(thread.resolvedIn && order.has(thread.resolvedIn));
+        return opened < position && resolved >= position && !resolvedWithoutScene;
+    });
+}
+
+/**
+ * Formats a plot thread for a writing prompt, with its latest development before the scene.
+ * @param {any} thread Plot thread
+ * @param {Map<string, number>} order Scene order
+ * @param {string} sceneId Current scene
+ * @returns {{ title: string, text: string }}
+ */
+export function formatThreadForPrompt(thread, order, sceneId) {
+    const position = order.get(sceneId) ?? Infinity;
+    const latest = [...(thread.notes ?? [])].reverse().find(note => note.sceneId && (order.get(note.sceneId) ?? Infinity) < position);
+    const parts = [thread.title];
+    if (thread.description) {
+        parts.push(`: ${thread.description}`);
+    }
+    if (latest) {
+        parts.push(` (latest: ${latest.text})`);
+    }
+    return { title: thread.title, text: parts.join('') };
 }

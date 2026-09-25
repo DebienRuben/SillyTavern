@@ -153,3 +153,61 @@ describe('tiered writing prompt', () => {
         expect(story(withReserve)).toBeGreaterThan(story(withoutMemory) - 50);
     });
 });
+
+describe('retrieved passages and plot threads in writing prompts', () => {
+    const base = {
+        task: 'continue',
+        project: { title: 'T' },
+        chapter: { title: 'Four' },
+        chapterNumber: 4,
+        scene: { title: 'S6', beats: '' },
+        beforeCursor: 'Now.',
+        afterCursor: '',
+        budgetTokens: 8000,
+    };
+    const passages = [
+        { sceneId: 's4', chapterNumber: 3, chapterTitle: 'Three', sceneTitle: 'S4', text: 'The ledger was blank.' },
+        { sceneId: 's1', chapterNumber: 1, chapterTitle: 'One', sceneTitle: 'S1', text: 'Mara hid the ledger.' },
+        { sceneId: 's5', chapterNumber: 3, chapterTitle: 'Three', sceneTitle: 'S5', text: 'Already word for word.' },
+    ];
+    const preceding = { hasMore: false, scenes: [{ sceneId: 's5', chapterNumber: 3, chapterTitle: 'Three', title: 'S5', content: 'Ilse helped them.', truncated: false }] };
+
+    test('adds passages in reading order, skipping scenes already included word for word', () => {
+        const { messages, sections } = buildWritingPrompt({ ...base, preceding, passages });
+        const user = messages[1].content;
+        expect(user).toContain('<relevant_passages>');
+        expect(user.indexOf('Mara hid the ledger.')).toBeLessThan(user.indexOf('The ledger was blank.'));
+        expect(user).toContain('### Chapter 1: One · S1 (excerpt)');
+        expect(user).not.toContain('Already word for word.');
+        expect(user.indexOf('</relevant_passages>')).toBeLessThan(user.indexOf('<story_so_far>'));
+        expect(sections.find(s => s.name.startsWith('Relevant'))).toMatchObject({ name: 'Relevant earlier passages (2)', truncated: false });
+    });
+
+    test('lists open threads with a rule not to drop them', () => {
+        const threads = [{ title: 'The blank ledger', text: 'The blank ledger: why are the pages empty?' }];
+        const user = buildWritingPrompt({ ...base, preceding: { hasMore: false, scenes: [] }, threads }).messages[1].content;
+        expect(user).toContain('<open_threads>\n- The blank ledger: why are the pages empty?\n</open_threads>');
+        expect(user).toContain('Keep <open_threads> in mind');
+        const without = buildWritingPrompt({ ...base, preceding: { hasMore: false, scenes: [] } }).messages[1].content;
+        expect(without).not.toContain('open_threads');
+    });
+
+    test('stays within budget with every tier filled', () => {
+        const long = 'word '.repeat(6000).trim();
+        const bigPassages = Array.from({ length: 20 }, (_, i) => ({ sceneId: `p${i}`, chapterNumber: 1, chapterTitle: 'One', sceneTitle: `P${i}`, text: 'passage '.repeat(200) }));
+        const threads = Array.from({ length: 30 }, (_, i) => ({ title: `T${i}`, text: `Thread ${i}: ${'detail '.repeat(20)}` }));
+        const budgetTokens = 4000;
+        const { messages } = buildWritingPrompt({
+            ...base,
+            budgetTokens,
+            beforeCursor: long,
+            preceding: { hasMore: true, scenes: [{ sceneId: 's5', chapterNumber: 3, chapterTitle: 'Three', title: 'S5', content: long, truncated: false }] },
+            memory: collectStoryMemory(structure, state, 's6'),
+            passages: bigPassages,
+            threads,
+            codex: [{ name: 'Big', text: 'codex '.repeat(500) }],
+        });
+        const total = messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+        expect(total).toBeLessThanOrEqual(budgetTokens + 150);
+    });
+});

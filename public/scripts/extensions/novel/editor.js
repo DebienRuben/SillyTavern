@@ -1,5 +1,6 @@
 import { tiptap } from '../../../lib.js';
 import { novelApi, NovelApiError } from './api.js';
+import { findQuote } from './ai/ask-logic.js';
 
 const AUTOSAVE_DELAY_MS = 1500;
 
@@ -204,6 +205,42 @@ export class SceneEditor {
         }
         editor.view.dispatch(tr.scrollIntoView());
         editor.commands.focus(end);
+    }
+
+    /**
+     * Selects a quote in the scene and scrolls to it, tolerating whitespace and quote-mark differences.
+     * @param {string} quote Text to find
+     * @returns {boolean} Whether the quote was found
+     */
+    selectQuote(quote) {
+        const editor = this.#editor;
+        if (!editor) {
+            return false;
+        }
+        // Build the scene's plain text with a document position for every character
+        let text = '';
+        /** @type {number[]} */
+        const positions = [];
+        editor.state.doc.descendants((/** @type {any} */ node, /** @type {number} */ pos) => {
+            if (node.isTextblock && text) {
+                text += BLOCK_SEPARATOR;
+                positions.push(-1, -1);
+            }
+            if (node.isText) {
+                for (let i = 0; i < node.text.length; i++) {
+                    positions.push(pos + i);
+                }
+                text += node.text;
+            }
+        });
+        const range = findQuote(text, quote);
+        if (!range) {
+            return false;
+        }
+        const from = positions.slice(range.start).find(p => p >= 0);
+        const to = positions.slice(0, range.end).reverse().find(p => p >= 0) + 1;
+        editor.chain().focus().setTextSelection({ from, to }).scrollIntoView().run();
+        return true;
     }
 
     /** @returns {number} Live word count of the open scene */

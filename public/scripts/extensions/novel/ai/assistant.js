@@ -8,6 +8,10 @@ import { buildWritingPrompt, cleanOutput, countWords, LENGTHS, tokensToChars } f
 const MODULE = 'novel';
 /** How much prose around the cursor is scanned for codex mentions. */
 const CODEX_SCAN_CHARS = 6000;
+/** How much prose before the cursor goes into the search for related earlier passages. */
+const RETRIEVAL_QUERY_CHARS = 800;
+/** How many passages the search returns; the prompt budget decides how many are used. */
+const RETRIEVAL_LIMIT = 12;
 
 const TASK_TEXT = Object.freeze({
     continue: { running: 'Writing…', done: 'Continuation', accept: 'Insert' },
@@ -203,7 +207,10 @@ export class WritingAssistant {
     async #buildPrompt(request, current) {
         const studio = this.#studio;
         const budget = this.settings.contextBudget;
-        const preceding = await novelApi.getPrecedingScenes(studio.project.id, request.sceneId, tokensToChars(budget));
+        const [preceding, passages] = await Promise.all([
+            novelApi.getPrecedingScenes(studio.project.id, request.sceneId, tokensToChars(budget)),
+            this.#findPassages(request, current),
+        ]);
         return buildWritingPrompt({
             task: request.kind === 'rewrite' ? 'rewrite' : 'continue',
             instructions: this.settings.instructions,
@@ -224,7 +231,33 @@ export class WritingAssistant {
                 request.context.after.slice(0, CODEX_SCAN_CHARS / 4),
             ]),
             memory: studio.memory.memoryForPrompt(current.scene.id),
+            passages,
+            threads: studio.codex.threadsForPrompt(current.scene.id),
         });
+    }
+
+    /**
+     * Searches earlier scenes for passages related to what is being written. Search
+     * problems never block writing; the prompt is then built without passages.
+     * @param {WritingRequest} request Writing request
+     * @param {{ scene: any }} current Scene being written
+     */
+    async #findPassages(request, current) {
+        const query = [
+            current.scene.beats ?? '',
+            request.instruction ?? '',
+            request.context.selection,
+            request.context.before.slice(-RETRIEVAL_QUERY_CHARS),
+        ].join('\n').trim();
+        if (!query) {
+            return [];
+        }
+        try {
+            return await this.#studio.search({ query, limit: RETRIEVAL_LIMIT, beforeSceneId: current.scene.id });
+        } catch (error) {
+            console.warn('Novel Studio: manuscript search failed; writing without earlier passages', error);
+            return [];
+        }
     }
 
     /** Shows what Continue would send at the cursor, without sending anything. */

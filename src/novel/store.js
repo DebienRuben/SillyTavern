@@ -138,8 +138,10 @@ export function projectPaths(directories, projectId) {
         scenes: path.join(root, 'scenes'),
         trash: path.join(root, 'trash'),
         codex: path.join(root, 'codex'),
+        index: path.join(root, 'index'),
         summaries: path.join(root, 'memory', 'summaries.json'),
         suggestions: path.join(root, 'suggestions.json'),
+        threads: path.join(root, 'threads.json'),
         /** @param {string} sceneId */
         scene: (sceneId) => path.join(root, 'scenes', `${assertId(sceneId, 'scene ID')}.md`),
     };
@@ -290,7 +292,22 @@ async function ensureRepo(dir) {
         return;
     }
     await git.init({ fs, dir, defaultBranch: 'main' });
-    fs.writeFileSync(path.join(dir, '.gitignore'), 'trash/\n', 'utf8');
+}
+
+/** Folders that are never snapshotted: deleted scenes and the rebuildable search index. */
+const GIT_IGNORED = Object.freeze(['trash/', 'index/']);
+
+/**
+ * Makes sure the project's .gitignore lists every ignored folder, also in older projects.
+ * @param {string} dir Project root
+ */
+function ensureGitignore(dir) {
+    const filePath = path.join(dir, '.gitignore');
+    const lines = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8').split('\n').map(line => line.trim()) : [];
+    const missing = GIT_IGNORED.filter(entry => !lines.includes(entry));
+    if (missing.length > 0) {
+        fs.writeFileSync(filePath, [...lines.filter(Boolean), ...missing].join('\n') + '\n', 'utf8');
+    }
 }
 
 /**
@@ -301,6 +318,7 @@ async function ensureRepo(dir) {
  */
 async function commitAll(dir, message) {
     await ensureRepo(dir);
+    ensureGitignore(dir);
     const matrix = await git.statusMatrix({ fs, dir });
     let changed = false;
 

@@ -5,6 +5,8 @@ import {
     detectMentions,
     extractionToSuggestions,
     formatEntityForPrompt,
+    formatThreadForPrompt,
+    openThreadsAt,
     parseJsonResponse,
     sceneOrder,
     selectRelevantEntities,
@@ -166,5 +168,53 @@ describe('codex in writing prompts', () => {
         const { messages } = buildWritingPrompt({ ...base, budgetTokens: 8000 });
         expect(messages[1].content).not.toContain('<codex>');
         expect(messages[1].content).not.toContain('source of truth');
+    });
+});
+
+describe('plot threads', () => {
+    const order = sceneOrder(structure);
+    const threads = [
+        { id: 'thr-buyer', title: 'Who is the buyer?', description: 'Someone wants the ledger.', status: 'open', openedIn: 's1', resolvedIn: null, notes: [{ sceneId: 's2', text: 'Tom hints he knows.' }, { sceneId: 's3', text: 'Too late.' }] },
+        { id: 'thr-map', title: 'The map', description: '', status: 'resolved', openedIn: 's1', resolvedIn: 's2', notes: [] },
+        { id: 'thr-later', title: 'Later thread', description: '', status: 'open', openedIn: 's3', resolvedIn: null, notes: [] },
+        { id: 'thr-loose', title: 'Loose', description: '', status: 'open', openedIn: null, resolvedIn: null, notes: [] },
+    ];
+
+    test('knows which threads are open when a scene begins', () => {
+        expect(openThreadsAt(threads, order, 's2').map(t => t.id)).toEqual(['thr-buyer', 'thr-map', 'thr-loose']);
+        expect(openThreadsAt(threads, order, 's3').map(t => t.id)).toEqual(['thr-buyer', 'thr-loose']);
+        expect(openThreadsAt(threads, order, 's1').map(t => t.id)).toEqual(['thr-loose']);
+    });
+
+    test('formats a thread with its latest development before the scene', () => {
+        expect(formatThreadForPrompt(threads[0], order, 's3').text).toBe('Who is the buyer?: Someone wants the ledger. (latest: Tom hints he knows.)');
+        expect(formatThreadForPrompt(threads[0], order, 's2').text).toBe('Who is the buyer?: Someone wants the ledger.');
+    });
+
+    test('turns extracted threads into suggestions', () => {
+        const suggestions = extractionToSuggestions({
+            updates: [],
+            newEntities: [],
+            threads: [
+                { action: 'open', threadId: '', title: 'The blank ledger', description: 'Pages are empty.', note: '', evidence: 'blank' },
+                { action: 'open', threadId: '', title: 'who is the buyer?', description: '', note: 'Tom is nervous.', evidence: '' },
+                { action: 'resolve', threadId: 'thr-later', title: '', description: '', note: 'Solved.', evidence: 'e' },
+                { action: 'advance', threadId: 'thr-loose', title: '', description: '', note: '', evidence: '' },
+                { action: 'advance', threadId: 'thr-unknown', title: 'Nope', description: '', note: 'x', evidence: '' },
+            ],
+        }, [], threads);
+        expect(suggestions).toEqual([
+            { kind: 'thread-open', thread: { title: 'The blank ledger', description: 'Pages are empty.' }, evidence: 'blank' },
+            { kind: 'thread-update', threadId: 'thr-buyer', status: 'open', note: 'Tom is nervous.', evidence: '' },
+            { kind: 'thread-update', threadId: 'thr-later', status: 'resolved', note: 'Solved.', evidence: 'e' },
+        ]);
+    });
+
+    test('lists open threads in the extraction prompt', () => {
+        const [, user] = buildExtractionMessages({
+            project: { title: 'T' }, chapter: { title: '' }, chapterNumber: 1, scene: { title: 'S' }, sceneText: 'x', known: [], threads: threads.slice(0, 1),
+        });
+        expect(user.content).toContain('<open_threads>\n- id: thr-buyer\n  title: Who is the buyer?\n  description: Someone wants the ledger.\n</open_threads>');
+        expect(user.content).toContain('"threads": plot threads');
     });
 });

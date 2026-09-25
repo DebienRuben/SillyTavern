@@ -1,5 +1,8 @@
 import express from 'express';
 
+import { getConfigValue } from '../util.js';
+import { getBatchVector } from './vectors.js';
+
 import {
     NovelError,
     createProject,
@@ -17,13 +20,17 @@ import {
 } from '../novel/store.js';
 import {
     deleteEntity,
+    deleteThread,
     listEntities,
+    listThreads,
     listSuggestions,
     replaceSceneSuggestions,
     resolveSuggestion,
     saveEntity,
+    saveThread,
 } from '../novel/codex.js';
 import { getSummaryState, saveSummary } from '../novel/memory.js';
+import { searchManuscript } from '../novel/search.js';
 
 export const router = express.Router();
 
@@ -122,3 +129,47 @@ router.post('/summaries/save', handle(request => saveSummary(
     request.body?.text,
     request.body?.sourceHash,
 )));
+
+/** Embedding sources Novel Studio offers, with their default models. */
+const EMBEDDING_SOURCES = Object.freeze({
+    transformers: '',
+    openrouter: 'openai/text-embedding-3-small',
+});
+
+/**
+ * Turns the client's embedding choice into an embed function, or null for keyword search only.
+ * @param {import('express').Request} request Request with body.embedding = { source, model }
+ * @returns {{ key: string, embed: import('../novel/search.js').EmbedFunction } | null}
+ */
+function resolveEmbedding(request) {
+    const source = request.body?.embedding?.source;
+    if (!source || source === 'none') {
+        return null;
+    }
+    if (!Object.hasOwn(EMBEDDING_SOURCES, source)) {
+        throw new NovelError(400, 'Unsupported embedding source');
+    }
+    const model = source === 'transformers'
+        ? String(getConfigValue('extensions.models.embedding', 'default'))
+        : String(request.body.embedding.model || EMBEDDING_SOURCES[source]).slice(0, 200);
+    const settings = source === 'openrouter' ? { model } : {};
+    return {
+        // Stored with each indexed scene, so switching models re-embeds everything
+        key: `${source}:${model}`,
+        embed: (texts, isQuery) => getBatchVector(source, settings, texts, isQuery, request.user.directories),
+    };
+}
+
+router.post('/search', handle(request => searchManuscript(request.user.directories, request.body?.id, {
+    query: request.body?.query,
+    limit: request.body?.limit,
+    beforeSceneId: request.body?.beforeSceneId,
+    excludeSceneIds: request.body?.excludeSceneIds,
+    embedding: resolveEmbedding(request),
+})));
+
+router.post('/threads/list', handle(request => listThreads(request.user.directories, request.body?.id)));
+
+router.post('/threads/save', handle(request => saveThread(request.user.directories, request.body?.id, request.body?.thread)));
+
+router.post('/threads/delete', handle(request => deleteThread(request.user.directories, request.body?.id, request.body?.threadId)));

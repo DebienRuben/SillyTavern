@@ -7,6 +7,7 @@ import { SceneEditor } from './editor.js';
 import { WritingAssistant } from './ai/assistant.js';
 import { CodexPanel } from './codex-panel.js';
 import { MemoryPanel } from './memory-panel.js';
+import { StoryTools } from './story-tools.js';
 import { DEFAULT_WRITER_INSTRUCTIONS, LENGTHS } from './ai/prompt.js';
 import { getProfiles } from './ai/generate.js';
 
@@ -53,6 +54,8 @@ export class NovelStudio {
     codex;
     /** @type {MemoryPanel} */
     memory;
+    /** @type {StoryTools} */
+    tools;
     /** @type {any} */
     project = null;
     /** @type {any} */
@@ -131,6 +134,7 @@ export class NovelStudio {
         this.editor.close();
         this.codex.clear();
         this.memory.clear();
+        this.tools.clear();
         this.$root.attr('data-view', 'projects');
         this.$root.find('.ns-project-title').text('');
         this.$root.find('.ns-stats').text('');
@@ -314,6 +318,18 @@ export class NovelStudio {
     #structureChanged() {
         clearTimeout(this.#structureTimer);
         this.#structureTimer = setTimeout(() => this.saveStructureNow(), STRUCTURE_SAVE_DELAY_MS);
+    }
+
+    /**
+     * Searches the manuscript with the configured search mode.
+     * @param {{ query: string, limit?: number, beforeSceneId?: string, excludeSceneIds?: string[] }} options
+     */
+    search(options) {
+        const ai = this.settings.ai;
+        return novelApi.search(this.project.id, {
+            ...options,
+            embedding: { source: ai.embeddingSource, model: ai.embeddingModel },
+        });
     }
 
     /** Schedules a structure save after a change made outside the studio (e.g. the codex panel). */
@@ -720,6 +736,8 @@ export class NovelStudio {
             $select.val(profiles.some(p => p.id === ai[name]) ? ai[name] : '');
         }
         $form.find('[data-name="contextBudget"]').val(ai.contextBudget);
+        $form.find('[data-name="embeddingSource"]').val(ai.embeddingSource);
+        $form.find('[data-name="embeddingModel"]').val(ai.embeddingModel);
         const $instructions = $form.find('[data-name="instructions"]');
         $instructions.val(ai.instructions || DEFAULT_WRITER_INSTRUCTIONS);
         $form.on('click', '.ns-reset-instructions', () => $instructions.val(DEFAULT_WRITER_INSTRUCTIONS));
@@ -737,6 +755,8 @@ export class NovelStudio {
         ai.backgroundProfileId = String($form.find('[data-name="backgroundProfileId"]').val()) || null;
         const budget = Number($form.find('[data-name="contextBudget"]').val());
         ai.contextBudget = Number.isFinite(budget) ? Math.min(1_000_000, Math.max(2000, Math.round(budget))) : ai.contextBudget;
+        ai.embeddingSource = String($form.find('[data-name="embeddingSource"]').val());
+        ai.embeddingModel = String($form.find('[data-name="embeddingModel"]').val()).trim();
         const instructions = String($instructions.val()).trim();
         // Store an empty string for the default, so improvements to the default reach existing users
         ai.instructions = instructions === DEFAULT_WRITER_INSTRUCTIONS ? '' : instructions;
@@ -803,6 +823,7 @@ export class NovelStudio {
         this.assistant = new WritingAssistant(this);
         this.codex = new CodexPanel(this);
         this.memory = new MemoryPanel(this);
+        this.tools = new StoryTools(this);
 
         // Keep SillyTavern's chat shortcuts (swipes, message editing) from firing while writing
         $root.on('keydown', (event) => event.stopPropagation());
