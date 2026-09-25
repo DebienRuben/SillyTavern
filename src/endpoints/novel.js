@@ -23,6 +23,7 @@ import {
     resolveSuggestion,
     saveEntity,
 } from '../novel/codex.js';
+import { getSummaryState, saveSummary } from '../novel/memory.js';
 
 export const router = express.Router();
 
@@ -109,4 +110,15 @@ router.post('/suggestions/resolve', handle(request => resolveSuggestion(
     request.body?.suggestionId,
     request.body?.action,
     request.body?.edits,
+)));
+
+router.post('/summaries/state', handle(request => getSummaryState(request.user.directories, request.body?.id)));
+
+router.post('/summaries/save', handle(request => saveSummary(
+    request.user.directories,
+    request.body?.id,
+    request.body?.level,
+    request.body?.key,
+    request.body?.text,
+    request.body?.sourceHash,
 )));

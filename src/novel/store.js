@@ -111,7 +111,7 @@ export function text(value, maxLength) {
  * @param {string} content Scene content
  * @returns {string}
  */
-function hashContent(content) {
+export function hashContent(content) {
     return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
 }
 
@@ -138,6 +138,7 @@ export function projectPaths(directories, projectId) {
         scenes: path.join(root, 'scenes'),
         trash: path.join(root, 'trash'),
         codex: path.join(root, 'codex'),
+        summaries: path.join(root, 'memory', 'summaries.json'),
         suggestions: path.join(root, 'suggestions.json'),
         /** @param {string} sceneId */
         scene: (sceneId) => path.join(root, 'scenes', `${assertId(sceneId, 'scene ID')}.md`),

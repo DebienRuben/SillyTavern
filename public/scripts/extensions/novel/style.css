@@ -1142,3 +1142,125 @@
 .popup .ns-danger {
     color: var(--warning, #e6a23c);
 }
+
+/* ---- Memory (summaries) ---- */
+
+.ns-summary-block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 14px;
+}
+
+.ns-scene-meta + .ns-summary-block {
+    padding-top: 10px;
+    border-top: 1px solid var(--SmartThemeBorderColor);
+}
+
+.ns-summary-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ns-summary-header h4 {
+    margin: 0;
+    flex: 1 1 auto;
+}
+
+.ns-summary-status {
+    font-size: 0.8em;
+    color: var(--ns-muted);
+    white-space: nowrap;
+}
+
+.ns-summary-status[data-tone="stale"],
+.ns-memory-chapter-status[data-tone="stale"] {
+    color: var(--warning, #e6a23c);
+}
+
+.ns-summary-header .ns-icon-button {
+    padding: 4px 6px;
+}
+
+.ns-summary-header .ns-icon-button:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.ns-summary-text {
+    width: 100%;
+    font-size: 0.95rem;
+    color: var(--SmartThemeBodyColor);
+    background-color: var(--black30a);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    padding: 6px 8px;
+    resize: vertical;
+}
+
+.ns-summary-text:disabled {
+    opacity: 0.5;
+}
+
+.ns-memory-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.ns-memory-actions .menu_button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: auto;
+    margin: 0;
+}
+
+.ns-memory-actions .menu_button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.ns-memory-actions .menu_button[hidden] {
+    display: none;
+}
+
+.ns-memory-counts {
+    flex: 1 1 100%;
+    font-size: 0.9em;
+}
+
+.ns-memory-progress {
+    flex: 1 1 100%;
+    margin: 0;
+    padding: 0;
+}
+
+.ns-memory-chapters {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.ns-memory-chapter {
+    display: flex;
+    flex-direction: column;
+    padding: 6px 8px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+}
+
+.ns-memory-chapter-name {
+    font-weight: bold;
+}
+
+.ns-memory-chapter-status {
+    font-size: 0.8em;
+    color: var(--ns-muted);
+}
+
+.ns-toolbar .ns-ai-preview {
+    padding: 0 8px;
+}

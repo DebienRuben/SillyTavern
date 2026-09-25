@@ -55,6 +55,9 @@
                         <button type="button" class="ns-ai-button ns-ai-continue" title="Continue writing at the cursor (Ctrl+Enter)">
                             <i class="fa-solid fa-wand-magic-sparkles"></i><span>Continue</span>
                         </button>
+                        <button type="button" class="ns-ai-button ns-ai-preview" title="Preview exactly what Continue would send to the model, without sending it">
+                            <i class="fa-solid fa-eye"></i>
+                        </button>
                         <button type="button" class="ns-ai-button ns-ai-rewrite" title="Rewrite the selected text" disabled>
                             <i class="fa-solid fa-pen-nib"></i><span>Rewrite</span>
                         </button>
@@ -82,7 +85,8 @@
             <div class="ns-tabs" role="tablist">
                 <button type="button" class="ns-tab active" data-tab="scene">Scene</button>
                 <button type="button" class="ns-tab" data-tab="codex">Codex</button>
-                <button type="button" class="ns-tab" data-tab="suggestions">Suggestions <span class="ns-badge" hidden></span></button>
+                <button type="button" class="ns-tab" data-tab="suggestions" title="Codex suggestions waiting for review">Review <span class="ns-badge" hidden></span></button>
+                <button type="button" class="ns-tab" data-tab="memory" title="Scene and chapter summaries and the book synopsis">Memory</button>
                 <button type="button" class="ns-tab" data-tab="history">History</button>
             </div>
             <div class="ns-tab-panel" data-panel="scene">
@@ -108,6 +112,14 @@
                         <textarea data-field="beats" rows="8" maxlength="20000" placeholder="What happens in this scene?"></textarea>
                     </label>
                 </div>
+                <div class="ns-summary-block" data-level="scene">
+                    <div class="ns-summary-header">
+                        <h4>Summary</h4>
+                        <span class="ns-summary-status"></span>
+                        <button type="button" class="ns-icon-button ns-summary-regenerate fa-solid fa-rotate" title="Write this summary again with the background model"></button>
+                    </div>
+                    <textarea class="ns-summary-text" rows="5" maxlength="20000" placeholder="Written by the background model when the scene is Revised or Final. You can also write or edit it yourself."></textarea>
+                </div>
                 <div class="ns-scene-cast">
                     <h4>In this scene</h4>
                     <div class="ns-cast-list"></div>
@@ -123,8 +135,16 @@
                         <input type="text" data-chapter-field="title" maxlength="300" />
                     </label>
                     <label>Synopsis
-                        <textarea data-chapter-field="synopsis" rows="5" maxlength="20000"></textarea>
+                        <textarea data-chapter-field="synopsis" rows="5" maxlength="20000" placeholder="Your plan for this chapter."></textarea>
                     </label>
+                    <div class="ns-summary-block" data-level="chapter">
+                        <div class="ns-summary-header">
+                            <h4>Chapter summary</h4>
+                            <span class="ns-summary-status"></span>
+                            <button type="button" class="ns-icon-button ns-summary-regenerate fa-solid fa-rotate" title="Write this summary again from the scene summaries"></button>
+                        </div>
+                        <textarea class="ns-summary-text" rows="5" maxlength="20000" placeholder="What actually happens in this chapter, written from its scene summaries."></textarea>
+                    </div>
                 </div>
             </div>
             <div class="ns-tab-panel" data-panel="codex" hidden>
@@ -141,6 +161,25 @@
                     <button type="button" class="menu_button ns-reject-all">Reject all</button>
                 </div>
                 <div class="ns-suggestions"></div>
+            </div>
+            <div class="ns-tab-panel" data-panel="memory" hidden>
+                <p class="ns-hint">Summaries let the writer remember the whole book once it no longer fits in one prompt. They are written bottom-up by the background model: scenes, then chapters, then the synopsis.</p>
+                <div class="ns-memory-actions">
+                    <span class="ns-memory-counts"></span>
+                    <button type="button" class="menu_button ns-memory-update"><i class="fa-solid fa-wand-magic-sparkles"></i><span>Update out-of-date summaries</span></button>
+                    <button type="button" class="menu_button ns-memory-stop" hidden><i class="fa-solid fa-stop"></i><span>Stop</span></button>
+                    <p class="ns-hint ns-memory-progress"></p>
+                </div>
+                <div class="ns-summary-block" data-level="book">
+                    <div class="ns-summary-header">
+                        <h4>Book synopsis</h4>
+                        <span class="ns-summary-status"></span>
+                        <button type="button" class="ns-icon-button ns-summary-regenerate fa-solid fa-rotate" title="Write the synopsis again from the chapter summaries"></button>
+                    </div>
+                    <textarea class="ns-summary-text" rows="12" maxlength="20000" placeholder="The story so far, written from the chapter summaries."></textarea>
+                </div>
+                <h4>Chapters</h4>
+                <div class="ns-memory-chapters"></div>
             </div>
             <div class="ns-tab-panel" data-panel="history" hidden>
                 <p class="ns-hint">Snapshots are taken automatically every 10 minutes while you write, when you close the studio, and when you click Snapshot.</p>

@@ -22,9 +22,15 @@ export const LENGTHS = Object.freeze({
 /** Share of the flexible budget codex entries may use. They come before the prose in priority. */
 const CODEX_SHARE = 0.25;
 /** Share of the flexible budget the current scene's text before the cursor may use. */
-const BEFORE_CURSOR_SHARE = 0.6;
+const BEFORE_CURSOR_SHARE = 0.45;
 /** Share of the flexible budget the text after the cursor may use. */
 const AFTER_CURSOR_SHARE = 0.1;
+/** Share of the flexible budget reserved for the book synopsis. */
+const SYNOPSIS_SHARE = 0.08;
+/** Share of the flexible budget reserved for scene and chapter summaries of earlier story. */
+const SUMMARY_SHARE = 0.15;
+/** Chapters this close to the current one are summarized per scene; older ones per chapter. */
+const SCENE_DETAIL_CHAPTERS = 1;
 /** Rough characters-per-token ratio; errs towards overestimating tokens. */
 const CHARS_PER_TOKEN = 3.5;
 
@@ -124,6 +130,7 @@ function tagged(tag, content) {
 
 /**
  * @typedef {object} PrecedingScene
+ * @property {string} [sceneId]
  * @property {number} chapterNumber
  * @property {string} chapterTitle
  * @property {string} title
@@ -146,6 +153,7 @@ function tagged(tag, content) {
  * @property {number} [targetWords] Target length for continuations
  * @property {{ scenes: PrecedingScene[], hasMore: boolean }} preceding Earlier scenes, newest first
  * @property {{ name: string, text: string }[]} [codex] Formatted codex entries, most important first
+ * @property {import('./memory-logic.js').StoryMemory} [memory] Synopsis and summaries of the story before this scene
  * @property {number} budgetTokens Maximum prompt size in tokens
  */
 
@@ -158,7 +166,8 @@ function tagged(tag, content) {
 
 /**
  * Builds the messages for a writing request, fitting the context into the token budget.
- * Priority: instructions, task and scene brief (always) > codex > scene text around the cursor > earlier scenes.
+ * Priority: instructions, task and scene brief (always) > codex > scene text around the cursor >
+ * synopsis and summaries (reserved shares) > earlier scenes word for word (the rest, including unused reserves).
  * @param {WritingPromptInput} input Prompt input
  * @returns {{ messages: { role: 'system' | 'user', content: string }[], sections: PromptSection[], maxTokens: number }}
  */
@@ -222,12 +231,38 @@ export function buildWritingPrompt(input) {
         sections.push({ name: 'Scene text after', tokens: estimateTokens(afterBlock), truncated: after.truncated });
     }
 
-    const story = buildStorySoFar(input.preceding, flexibleChars);
+    const memory = input.memory ?? { synopsis: '', priorScenes: [], priorChapters: [] };
+    const synopsisCut = keepHead(memory.synopsis.trim(), Math.floor(flexibleChars * SYNOPSIS_SHARE));
+    // When writing earlier in the book, the synopsis also knows what happens later
+    const laterNote = synopsisCut.text && memory.laterTextExists
+        ? '[This synopsis covers the whole manuscript, including events after the current scene. Do not reveal or anticipate later events unless the beats ask for it.]\n'
+        : '';
+    const synopsisBlock = tagged('book_synopsis', laterNote + synopsisCut.text + (synopsisCut.truncated ? ' […]' : ''));
+    flexibleChars -= synopsisBlock.length;
+    const hasSummaries = memory.priorScenes.some(scene => scene.summary.trim()) || memory.priorChapters.some(chapter => chapter.summary.trim());
+    const summaryReserve = hasSummaries ? Math.floor(flexibleChars * SUMMARY_SHARE) : 0;
+
+    // Earlier scenes word for word get everything else. Summaries then cover the story before them;
+    // if they need less than their reserve, a second pass gives the difference back to the prose.
+    let story = buildStorySoFar(input.preceding, flexibleChars - summaryReserve, hasSummaries);
+    let summary = buildStorySummary(memory, story, input.chapterNumber, summaryReserve);
+    const unused = summaryReserve - summary.text.length;
+    if (unused > 0 && story.truncated) {
+        story = buildStorySoFar(input.preceding, flexibleChars - summaryReserve + unused, hasSummaries);
+        summary = buildStorySummary(memory, story, input.chapterNumber, summaryReserve - unused);
+    }
+
+    if (synopsisBlock) {
+        sections.push({ name: 'Book synopsis', tokens: estimateTokens(synopsisBlock), truncated: synopsisCut.truncated });
+    }
+    if (summary.text) {
+        sections.push({ name: `Summaries (${summary.unitCount})`, tokens: estimateTokens(summary.text), truncated: summary.truncated });
+    }
     if (story.text) {
         sections.push({ name: `Earlier scenes (${story.sceneCount})`, tokens: estimateTokens(story.text), truncated: story.truncated });
     }
 
-    const user = [story.text, chapterBrief, sceneBrief, codex.text, beforeBlock, selectionBlock, afterBlock, task]
+    const user = [synopsisBlock, summary.text, story.text, chapterBrief, sceneBrief, codex.text, beforeBlock, selectionBlock, afterBlock, task]
         .filter(Boolean)
         .join('\n\n');
 
@@ -272,9 +307,10 @@ function fitCodex(entries, maxChars) {
  * Formats earlier scenes in reading order within a character budget.
  * @param {{ scenes: PrecedingScene[], hasMore: boolean }} preceding Earlier scenes, newest first
  * @param {number} maxChars Character budget
- * @returns {{ text: string, truncated: boolean, sceneCount: number }}
+ * @param {boolean} [hasSummaries] Whether omitted parts are covered by summaries
+ * @returns {{ text: string, truncated: boolean, sceneCount: number, fullIds: Set<string> }}
  */
-function buildStorySoFar(preceding, maxChars) {
+function buildStorySoFar(preceding, maxChars, hasSummaries = false) {
     const included = [];
     let remaining = maxChars;
     let truncated = preceding.hasMore;
@@ -296,8 +332,9 @@ function buildStorySoFar(preceding, maxChars) {
             break;
         }
     }
+    const fullIds = new Set(included.filter(scene => !scene.truncated).map(scene => scene.sceneId));
     if (included.length === 0) {
-        return { text: '', truncated: false, sceneCount: 0 };
+        return { text: '', truncated, sceneCount: 0, fullIds };
     }
 
     const parts = [];
@@ -309,8 +346,74 @@ function buildStorySoFar(preceding, maxChars) {
         }
         parts.push(`### ${scene.title || 'Untitled scene'}\n${scene.truncated ? '[…]\n' : ''}${scene.content}`);
     }
-    const intro = truncated ? '[Earlier parts of the manuscript are omitted.]\n\n' : '';
-    return { text: tagged('story_so_far', intro + parts.join('\n\n')), truncated, sceneCount: included.length };
+    const omitted = hasSummaries ? '[Earlier parts are summarized in <story_summary>.]' : '[Earlier parts of the manuscript are omitted.]';
+    const intro = truncated ? `${omitted}\n\n` : '';
+    return { text: tagged('story_so_far', intro + parts.join('\n\n')), truncated, sceneCount: included.length, fullIds };
+}
+
+/**
+ * Summarizes the story before the word-for-word scenes: scene summaries for the
+ * current and previous chapter, chapter summaries further back (scene summaries when a
+ * chapter has none). Fills newest first and stops at the first unit that does not fit,
+ * so the summarized stretch has no gaps.
+ * @param {import('./memory-logic.js').StoryMemory} memory Story memory
+ * @param {{ fullIds: Set<string> }} story Word-for-word scenes that were included
+ * @param {number} chapterNumber Current chapter number
+ * @param {number} maxChars Character budget
+ * @returns {{ text: string, truncated: boolean, unitCount: number }}
+ */
+function buildStorySummary(memory, story, chapterNumber, maxChars) {
+    const pending = memory.priorScenes.filter(scene => !story.fullIds.has(scene.sceneId));
+    const chapterSummaries = new Map(memory.priorChapters.map(chapter => [chapter.chapterNumber, chapter]));
+
+    /** @type {{ chapterNumber: number, chapterTitle: string, title: string | null, text: string }[]} */
+    const units = [];
+    let used = 0;
+    let truncated = false;
+    for (let i = pending.length - 1; i >= 0; i--) {
+        const scene = pending[i];
+        const chapter = chapterSummaries.get(scene.chapterNumber);
+        const useChapter = chapterNumber - scene.chapterNumber > SCENE_DETAIL_CHAPTERS && Boolean(chapter?.summary.trim());
+        /** @type {{ chapterNumber: number, chapterTitle: string, title: string | null, text: string }} */
+        let unit;
+        if (useChapter) {
+            unit = { chapterNumber: scene.chapterNumber, chapterTitle: scene.chapterTitle, title: null, text: chapter.summary.trim() };
+            // Skip the chapter's other scenes; the chapter summary covers them
+            while (i > 0 && pending[i - 1].chapterNumber === scene.chapterNumber) {
+                i--;
+            }
+        } else if (scene.summary.trim()) {
+            unit = { chapterNumber: scene.chapterNumber, chapterTitle: scene.chapterTitle, title: scene.title || 'Untitled scene', text: scene.summary.trim() };
+        } else {
+            continue;
+        }
+        const length = unit.text.length + (unit.title?.length ?? 0) + 40;
+        if (used + length > maxChars) {
+            truncated = true;
+            break;
+        }
+        units.push(unit);
+        used += length;
+    }
+    if (units.length === 0) {
+        return { text: '', truncated: truncated || pending.length > 0, unitCount: 0 };
+    }
+
+    // One block per chapter: its heading directly above its summary or scene summaries
+    const groups = [];
+    for (const unit of units.reverse()) {
+        const body = unit.title === null ? unit.text : `### ${unit.title} (summary)\n${unit.text}`;
+        const last = groups.at(-1);
+        if (last?.chapterNumber === unit.chapterNumber) {
+            last.bodies.push(body);
+        } else {
+            const heading = `## ${chapterLabel(unit.chapterNumber, unit.chapterTitle)}${unit.title === null ? ' (summary)' : ''}`;
+            groups.push({ chapterNumber: unit.chapterNumber, heading, bodies: [body] });
+        }
+    }
+    const parts = groups.map(group => `${group.heading}\n${group.bodies.join('\n\n')}`);
+    const intro = truncated ? '[Earlier events are covered by <book_synopsis>.]\n\n' : '';
+    return { text: tagged('story_summary', intro + parts.join('\n\n')), truncated, unitCount: units.length };
 }
 
 /**
@@ -357,7 +460,7 @@ export function countWords(text) {
     return text.match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu)?.length ?? 0;
 }
 
-const PROMPT_TAGS = ['story_so_far', 'current_chapter', 'current_scene', 'codex', 'scene_text', 'text_before', 'text_after', 'passage_to_rewrite', 'task'];
+const PROMPT_TAGS = ['book_synopsis', 'story_summary', 'story_so_far', 'current_chapter', 'current_scene', 'codex', 'scene_text', 'text_before', 'text_after', 'passage_to_rewrite', 'task'];
 
 /**
  * Cleans model output: removes code fences, echoed prompt tags and a leading "Here is…" line.

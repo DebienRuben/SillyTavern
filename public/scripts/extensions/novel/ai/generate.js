@@ -1,5 +1,6 @@
 import { ConnectionManagerRequestService } from '../../shared.js';
 import { parseJsonResponse } from './codex-logic.js';
+import { cleanOutput } from './prompt.js';
 
 /**
  * Lists the connection profiles that can be used for writing requests.
@@ -110,4 +111,24 @@ export async function requestJson({ profileId, role, messages, fallbackMessages,
         );
         return parseJsonResponse(result.content);
     }
+}
+
+/**
+ * Requests plain text through a connection profile, without streaming.
+ * @param {object} options Request options
+ * @param {string|null|undefined} options.profileId Connection profile ID
+ * @param {string} options.role Role of the model, for error messages (e.g. "background")
+ * @param {{ role: string, content: string }[]} options.messages Prompt messages
+ * @param {number} options.maxTokens Maximum response tokens
+ * @param {AbortSignal} [options.signal] Signal to stop the request
+ * @returns {Promise<string>} The cleaned response text
+ */
+export async function requestText({ profileId, role, messages, maxTokens, signal }) {
+    const id = requireProfile(profileId, role);
+    const result = /** @type {{ content: any }} */ (
+        await ConnectionManagerRequestService.sendRequest(id, messages, maxTokens, {
+            stream: false, signal, extractData: true, includePreset: true, includeInstruct: true,
+        })
+    );
+    return cleanOutput(String(result?.content ?? '')).trim();
 }

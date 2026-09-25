@@ -6,6 +6,7 @@ import { novelApi } from './api.js';
 import { SceneEditor } from './editor.js';
 import { WritingAssistant } from './ai/assistant.js';
 import { CodexPanel } from './codex-panel.js';
+import { MemoryPanel } from './memory-panel.js';
 import { DEFAULT_WRITER_INSTRUCTIONS, LENGTHS } from './ai/prompt.js';
 import { getProfiles } from './ai/generate.js';
 
@@ -50,6 +51,8 @@ export class NovelStudio {
     assistant;
     /** @type {CodexPanel} */
     codex;
+    /** @type {MemoryPanel} */
+    memory;
     /** @type {any} */
     project = null;
     /** @type {any} */
@@ -127,6 +130,7 @@ export class NovelStudio {
         this.structure = null;
         this.editor.close();
         this.codex.clear();
+        this.memory.clear();
         this.$root.attr('data-view', 'projects');
         this.$root.find('.ns-project-title').text('');
         this.$root.find('.ns-stats').text('');
@@ -147,10 +151,12 @@ export class NovelStudio {
         this.$root.attr('data-view', 'workspace');
         this.$root.find('.ns-project-title').text(project.title);
         this.renderTree();
-        try {
-            await this.codex.load();
-        } catch (error) {
-            toastr.error(`Could not load the codex: ${error.message}`, 'Novel Studio');
+        const [codexResult, memoryResult] = await Promise.allSettled([this.codex.load(), this.memory.load()]);
+        if (codexResult.status === 'rejected') {
+            toastr.error(`Could not load the codex: ${codexResult.reason?.message}`, 'Novel Studio');
+        }
+        if (memoryResult.status === 'rejected') {
+            toastr.error(`Could not load the summaries: ${memoryResult.reason?.message}`, 'Novel Studio');
         }
 
         const lastSceneId = this.settings.lastSceneByProject?.[project.id];
@@ -184,6 +190,7 @@ export class NovelStudio {
         this.#highlightCurrentScene();
         this.#renderStats();
         this.codex.renderCast();
+        this.memory.render();
         if (this.$root.find('.ns-tab[data-tab="history"]').hasClass('active')) {
             await this.#renderHistory();
         }
@@ -207,6 +214,8 @@ export class NovelStudio {
                 const saved = await novelApi.saveStructure(projectId, this.structure);
                 if (this.project?.id === projectId) {
                     this.#mergeWordCounts(saved);
+                    // Scenes may have been added, removed or moved between chapters
+                    this.memory.scheduleRefresh();
                 }
             })
             .catch((error) => {
@@ -779,8 +788,9 @@ export class NovelStudio {
                     const chapterWords = found.chapter.scenes.reduce((sum, s) => sum + (s.wordCount || 0), 0);
                     $root.find(`.ns-chapter[data-id="${found.chapter.id}"] > .ns-chapter-row .ns-count`).text(formatNumber(chapterWords));
                 }
-                // New names may have been written into the scene
+                // New names may have been written into the scene, and its summary may now be out of date
                 this.codex.renderCast();
+                this.memory.scheduleRefresh();
             },
             onConflict: async () => {
                 const result = await callGenericPopup(
@@ -792,6 +802,7 @@ export class NovelStudio {
 
         this.assistant = new WritingAssistant(this);
         this.codex = new CodexPanel(this);
+        this.memory = new MemoryPanel(this);
 
         // Keep SillyTavern's chat shortcuts (swipes, message editing) from firing while writing
         $root.on('keydown', (event) => event.stopPropagation());
@@ -812,6 +823,7 @@ export class NovelStudio {
         });
         $root.on('click', '.ns-ai-continue', () => this.assistant.continueScene());
         $root.on('click', '.ns-ai-rewrite', () => this.assistant.rewriteSelection());
+        $root.on('click', '.ns-ai-preview', () => this.assistant.previewContinue());
         $root.on('click', '.ns-ai-settings', () => this.#editAiSettings());
 
         $root.on('click', '.ns-close', () => this.close());
@@ -878,6 +890,7 @@ export class NovelStudio {
                 $root.find(`.ns-scene[data-id="${current.scene.id}"] .ns-status-dot`).attr('data-status', current.scene.status).attr('title', current.scene.status);
                 if (event.type === 'change') {
                     this.codex.onStatusChanged(current.scene.id, current.scene.status);
+                    this.memory.onStatusChanged(current.scene.id, current.scene.status);
                 }
             }
             if (['pov', 'location', 'beats'].includes(field)) {
@@ -909,6 +922,8 @@ export class NovelStudio {
                 this.codex.renderList();
             } else if (tab === 'suggestions') {
                 this.codex.renderSuggestions();
+            } else if (tab === 'memory') {
+                this.memory.render();
             }
         });
         $root.on('click', '.ns-history-view', (event) => this.#viewSnapshot($(event.currentTarget).closest('.ns-history-entry').attr('data-oid')));

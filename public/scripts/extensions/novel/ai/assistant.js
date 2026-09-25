@@ -159,28 +159,7 @@ export class WritingAssistant {
         this.#render({ status: 'running' });
 
         try {
-            const budget = this.settings.contextBudget;
-            const preceding = await novelApi.getPrecedingScenes(studio.project.id, request.sceneId, tokensToChars(budget));
-            const prompt = buildWritingPrompt({
-                task: request.kind === 'rewrite' ? 'rewrite' : 'continue',
-                instructions: this.settings.instructions,
-                project: studio.project,
-                chapter: current.chapter,
-                chapterNumber: current.chapterNumber,
-                scene: current.scene,
-                beforeCursor: request.context.before,
-                afterCursor: request.context.after,
-                selection: request.context.selection,
-                instruction: request.instruction,
-                targetWords: request.targetWords,
-                preceding,
-                budgetTokens: budget,
-                codex: studio.codex.entriesForPrompt(current.scene, [
-                    request.context.before.slice(-CODEX_SCAN_CHARS),
-                    request.context.selection,
-                    request.context.after.slice(0, CODEX_SCAN_CHARS / 4),
-                ]),
-            });
+            const prompt = await this.#buildPrompt(request, current);
             this.#lastPrompt = prompt;
 
             await streamCompletion({
@@ -213,6 +192,59 @@ export class WritingAssistant {
             }
         } finally {
             this.#abort = null;
+        }
+    }
+
+    /**
+     * Builds the prompt for a request from the scene, codex, summaries and earlier scenes.
+     * @param {WritingRequest} request Writing request
+     * @param {{ chapter: any, chapterNumber: number, scene: any }} current Scene being written
+     */
+    async #buildPrompt(request, current) {
+        const studio = this.#studio;
+        const budget = this.settings.contextBudget;
+        const preceding = await novelApi.getPrecedingScenes(studio.project.id, request.sceneId, tokensToChars(budget));
+        return buildWritingPrompt({
+            task: request.kind === 'rewrite' ? 'rewrite' : 'continue',
+            instructions: this.settings.instructions,
+            project: studio.project,
+            chapter: current.chapter,
+            chapterNumber: current.chapterNumber,
+            scene: current.scene,
+            beforeCursor: request.context.before,
+            afterCursor: request.context.after,
+            selection: request.context.selection,
+            instruction: request.instruction,
+            targetWords: request.targetWords,
+            preceding,
+            budgetTokens: budget,
+            codex: studio.codex.entriesForPrompt(current.scene, [
+                request.context.before.slice(-CODEX_SCAN_CHARS),
+                request.context.selection,
+                request.context.after.slice(0, CODEX_SCAN_CHARS / 4),
+            ]),
+            memory: studio.memory.memoryForPrompt(current.scene.id),
+        });
+    }
+
+    /** Shows what Continue would send at the cursor, without sending anything. */
+    async previewContinue() {
+        const context = this.#studio.editor.getCursorContext();
+        const current = this.#studio.getCurrentScene();
+        if (!context || !current) {
+            return;
+        }
+        try {
+            const prompt = await this.#buildPrompt({
+                kind: 'continue',
+                range: { from: context.to, to: context.to },
+                context: { ...context, from: context.to, before: context.before + context.selection, selection: '' },
+                targetWords: LENGTHS[this.settings.length]?.words ?? LENGTHS.medium.words,
+                sceneId: current.scene.id,
+            }, current);
+            await this.#showPrompt(prompt, 'Preview: what Continue would send');
+        } catch (error) {
+            toastr.error(`Could not build the preview: ${describeError(error)}`, 'Novel Studio');
         }
     }
 
@@ -288,13 +320,17 @@ export class WritingAssistant {
         return instruction;
     }
 
-    /** Shows exactly what was sent to the model, with estimated sizes per section. */
-    async #showPrompt() {
-        const prompt = this.#lastPrompt;
+    /**
+     * Shows exactly what was (or would be) sent to the model, with estimated sizes per section.
+     * @param {ReturnType<typeof buildWritingPrompt> | null} [prompt] Prompt to show; defaults to the last one sent
+     * @param {string} [title] Heading above the prompt
+     */
+    async #showPrompt(prompt = this.#lastPrompt, title = 'What was sent to the model') {
         if (!prompt) {
             return;
         }
         const $view = $('<div class="ns-prompt-view">');
+        $view.append($('<h3>').text(title));
         const total = prompt.sections.reduce((sum, section) => sum + section.tokens, 0);
         const $table = $('<table class="ns-prompt-sections">');
         $table.append('<tr><th>Section</th><th>≈ Tokens</th><th></th></tr>');

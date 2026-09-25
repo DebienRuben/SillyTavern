@@ -69,6 +69,13 @@ export const novelApi = {
      * @returns {Promise<{oid: string|null}>}
      */
     snapshot: (id, message, options) => call('snapshot', { id, message }, options),
+    /** @param {string} id @returns {Promise<any>} Summary state with staleness per scene, chapter and the book */
+    getSummaryState: (id) => call('summaries/state', { id }),
+    /**
+     * @param {string} id @param {'scene' | 'chapter' | 'book'} level @param {string | null} key
+     * @param {string} text @param {string} sourceHash Hash of the source the summary was written from
+     */
+    saveSummary: (id, level, key, text, sourceHash) => call('summaries/save', { id, level, key, text, sourceHash }),
     /** @param {string} id @returns {Promise<any[]>} */
     listCodex: (id) => call('codex/list', { id }),
     /** @param {string} id @param {object} entity */
