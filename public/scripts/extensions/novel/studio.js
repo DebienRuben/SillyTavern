@@ -10,10 +10,12 @@ import { MemoryPanel } from './memory-panel.js';
 import { StoryTools } from './story-tools.js';
 import { DEFAULT_WRITER_INSTRUCTIONS, LENGTHS } from './ai/prompt.js';
 import { getProfiles } from './ai/generate.js';
+import { splitManuscript } from './import-logic.js';
 
 const MODULE = 'novel';
 const STRUCTURE_SAVE_DELAY_MS = 800;
 const NARROW_LAYOUT = '(max-width: 1000px)';
+const MAX_IMPORT_BYTES = 20 * 1024 * 1024;
 
 const SAVE_STATUS_TEXT = Object.freeze({
     saved: 'Saved',
@@ -722,6 +724,95 @@ export class NovelStudio {
         }
     }
 
+    async #exportProject() {
+        if (!this.project) {
+            return;
+        }
+        const $form = $(`
+            <div class="ns-project-form">
+                <h3>Export manuscript</h3>
+                <label>Format
+                    <select class="text_pole" data-name="format">
+                        <option value="docx">Word document (.docx)</option>
+                        <option value="epub">E-book (.epub)</option>
+                        <option value="md">Markdown (.md)</option>
+                        <option value="txt">Plain text (.txt)</option>
+                    </select>
+                </label>
+                <label class="checkbox_label"><input type="checkbox" data-name="sceneTitles" /><span>Show scene titles instead of * * * between scenes</span></label>
+                <p class="ns-hint">Empty scenes and chapters are left out. In Word and e-book files every chapter starts on a new page.</p>
+            </div>`);
+        $form.find('[data-name="format"]').val(this.settings.lastExportFormat ?? 'docx');
+        const result = await callGenericPopup($form, POPUP_TYPE.CONFIRM, '', { okButton: 'Export', cancelButton: 'Cancel' });
+        if (result !== POPUP_RESULT.AFFIRMATIVE) {
+            return;
+        }
+        const format = String($form.find('[data-name="format"]').val());
+        this.settings.lastExportFormat = format;
+        saveSettingsDebounced();
+        try {
+            // Export what is on screen, not what was last saved
+            if (!await this.#flushEditor()) {
+                return;
+            }
+            await this.saveStructureNow();
+            const filename = await novelApi.downloadExport(this.project.id, format, { sceneTitles: $form.find('[data-name="sceneTitles"]').prop('checked') });
+            toastr.success(`Exported ${filename}.`, 'Novel Studio');
+        } catch (error) {
+            toastr.error(`Could not export: ${error.message}`, 'Novel Studio');
+        }
+    }
+
+    /**
+     * Previews how a file splits into chapters and scenes, then creates a novel from it.
+     * @param {File} file Markdown or text file
+     */
+    async #importFile(file) {
+        if (!file) {
+            return;
+        }
+        if (/\.(docx?|odt|pdf|epub)$/i.test(file.name)) {
+            toastr.warning('Only Markdown and plain-text files can be imported. Save the manuscript as .txt or .md first.', 'Novel Studio');
+            return;
+        }
+        if (file.size > MAX_IMPORT_BYTES) {
+            toastr.warning('That file is too large to import (over 20 MB).', 'Novel Studio');
+            return;
+        }
+        const split = splitManuscript(await file.text(), file.name);
+        if (split.chapters.length === 0) {
+            toastr.warning('No text found in that file.', 'Novel Studio');
+            return;
+        }
+
+        const sceneCount = split.chapters.reduce((sum, chapter) => sum + chapter.scenes.length, 0);
+        const $form = $('<div class="ns-project-form ns-import-preview"></div>');
+        $form.append('<h3>Import manuscript</h3>');
+        const $title = $('<input type="text" class="text_pole" maxlength="300">').val(split.title);
+        const $author = $('<input type="text" class="text_pole" maxlength="500">');
+        $form.append($('<div class="ns-form-row">').append($('<label>').text('Title').append($title), $('<label>').text('Author').append($author)));
+        $form.append($('<p>').text(`Found ${split.chapters.length} chapter(s) and ${sceneCount} scene(s), ${split.wordCount.toLocaleString()} words.`));
+        const $list = $('<ol class="ns-import-chapters">');
+        for (const chapter of split.chapters) {
+            const words = chapter.scenes.reduce((sum, scene) => sum + (scene.content.match(/[\p{L}\p{N}]+/gu)?.length ?? 0), 0);
+            $list.append($('<li>').text(`${chapter.title} · ${chapter.scenes.length} scene(s) · ${words.toLocaleString()} words`));
+        }
+        $form.append($list);
+        $form.append('<p class="ns-hint">Chapters start at headings (# or ##) or lines like "Chapter 3" and "Prologue". Scenes are split at *** or * * *, --- and # lines. Everything can be rearranged after importing.</p>');
+
+        const result = await callGenericPopup($form, POPUP_TYPE.CONFIRM, '', { okButton: 'Import', cancelButton: 'Cancel', wide: true, allowVerticalScrolling: true });
+        if (result !== POPUP_RESULT.AFFIRMATIVE) {
+            return;
+        }
+        try {
+            const { project } = await novelApi.importProject({ title: String($title.val()), author: String($author.val()), chapters: split.chapters });
+            await this.openProject(project.id);
+            toastr.success('Imported. To build the book\'s memory, use "Update out-of-date summaries" in the Memory tab and "Analyze all scenes" in the Review tab.', 'Novel Studio', { timeOut: 12000 });
+        } catch (error) {
+            toastr.error(`Could not import: ${error.message}`, 'Novel Studio');
+        }
+    }
+
     async #editAiSettings() {
         const ai = this.settings.ai;
         const $form = $(await renderExtensionTemplateAsync(MODULE, 'ai-settings'));
@@ -846,6 +937,9 @@ export class NovelStudio {
         $root.on('click', '.ns-ai-rewrite', () => this.assistant.rewriteSelection());
         $root.on('click', '.ns-ai-preview', () => this.assistant.previewContinue());
         $root.on('click', '.ns-ai-settings', () => this.#editAiSettings());
+        $root.on('click', '.ns-export', () => this.#exportProject());
+        $root.on('click', '.ns-import-project', () => $root.find('.ns-import-file').val('').trigger('click'));
+        $root.on('change', '.ns-import-file', (event) => this.#importFile(/** @type {HTMLInputElement} */ (event.currentTarget).files?.[0]));
 
         $root.on('click', '.ns-close', () => this.close());
         $root.on('click', '.ns-show-projects', () => this.showProjects());

@@ -35,7 +35,40 @@ async function call(endpoint, body = {}, { keepalive = false } = {}) {
     return data;
 }
 
+/**
+ * Downloads an export of a project as a file.
+ * @param {string} id Project ID
+ * @param {string} format Export format (md, txt, docx, epub)
+ * @param {{ sceneTitles?: boolean }} options Export options
+ */
+async function downloadExport(id, format, options) {
+    const response = await fetch('/api/novel/export', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({ id, format, options }),
+    });
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new NovelApiError(response.status, data.error || response.statusText);
+    }
+    const disposition = response.headers.get('Content-Disposition') ?? '';
+    const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/)?.[1];
+    const filename = encoded ? decodeURIComponent(encoded) : `novel.${format}`;
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    return filename;
+}
+
 export const novelApi = {
+    downloadExport,
+    /** @param {{ title: string, author?: string, chapters: object[] }} manuscript */
+    importProject: (manuscript) => call('import', manuscript),
     /** @returns {Promise<any[]>} */
     listProjects: () => call('list'),
     /** @param {object} fields */

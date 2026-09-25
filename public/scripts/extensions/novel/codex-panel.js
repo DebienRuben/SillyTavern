@@ -43,6 +43,8 @@ export class CodexPanel {
     /** @type {JQuery<HTMLElement>} */
     #root;
     #analyzingSceneId = null;
+    /** @type {{ stopped: boolean } | null} */
+    #batch = null;
 
     /**
      * @param {import('./studio.js').NovelStudio} studio Studio that owns the panel
@@ -80,6 +82,10 @@ export class CodexPanel {
 
     /** Forgets the codex when a project is closed. */
     clear() {
+        if (this.#batch) {
+            this.#batch.stopped = true;
+            this.#batch = null;
+        }
         this.entities = [];
         this.suggestions = [];
         this.threads = [];
@@ -478,9 +484,9 @@ export class CodexPanel {
     /**
      * Asks the background model how a scene changes the codex, and queues the result as suggestions.
      * @param {string} sceneId Scene to analyze
-     * @param {{ automatic?: boolean }} [options] Automatic runs report through toasts only
+     * @param {{ automatic?: boolean, quiet?: boolean }} [options] Automatic runs report through toasts only; quiet runs report errors only
      */
-    async analyzeScene(sceneId, { automatic = false } = {}) {
+    async analyzeScene(sceneId, { automatic = false, quiet = false } = {}) {
         if (this.#analyzingSceneId) {
             return;
         }
@@ -524,11 +530,14 @@ export class CodexPanel {
             if (this.#project?.id !== projectId) {
                 return;
             }
-            const items = extractionToSuggestions(result, known, this.threads);
+            const items = this.#withoutPendingDuplicates(extractionToSuggestions(result, known, this.threads), sceneId);
             this.suggestions = await novelApi.replaceSuggestions(projectId, sceneId, items);
             this.renderSuggestions();
 
             const sceneName = found.scene.title || 'this scene';
+            if (quiet) {
+                return;
+            }
             if (items.length === 0) {
                 toastr.info(`No codex changes found in "${sceneName}".`, 'Novel Studio');
             } else {
@@ -543,6 +552,55 @@ export class CodexPanel {
         } finally {
             this.#analyzingSceneId = null;
             this.#renderAnalyzeStatus();
+        }
+    }
+
+    /**
+     * Drops suggestions for new entries and threads that another scene already suggested and
+     * that are still waiting for review, so analyzing many scenes does not repeat them.
+     * @param {any[]} items New suggestions
+     * @param {string} sceneId Scene they come from
+     * @returns {any[]}
+     */
+    #withoutPendingDuplicates(items, sceneId) {
+        const pending = this.suggestions.filter(s => s.sceneId !== sceneId);
+        const names = new Set(pending.filter(s => s.kind === 'create').flatMap(s => [s.entity.name, ...s.entity.aliases]).map(n => n.toLowerCase()));
+        const titles = new Set(pending.filter(s => s.kind === 'thread-open').map(s => s.thread.title.toLowerCase()));
+        return items.filter(item => !(item.kind === 'create' && names.has(item.entity.name.toLowerCase()))
+            && !(item.kind === 'thread-open' && titles.has(item.thread.title.toLowerCase())));
+    }
+
+    /** Analyzes every scene in manuscript order, e.g. after importing a manuscript. */
+    async analyzeAll() {
+        if (this.#batch || this.#analyzingSceneId) {
+            return;
+        }
+        if (!this.#settings.backgroundProfileId) {
+            toastr.warning('Choose a background model in AI settings first.', 'Novel Studio');
+            return;
+        }
+        const scenes = this.#studio.structure.chapters.flatMap(chapter => chapter.scenes.filter(scene => scene.wordCount > 0));
+        const batch = { stopped: false };
+        this.#batch = batch;
+        const $progress = this.#root.find('.ns-analyze-all-progress');
+        this.#root.find('.ns-analyze-all').prop('hidden', true);
+        this.#root.find('.ns-analyze-all-stop').prop('hidden', false);
+        try {
+            for (const [index, scene] of scenes.entries()) {
+                if (batch.stopped || this.#batch !== batch) {
+                    break;
+                }
+                $progress.text(`Analyzing scene ${index + 1} of ${scenes.length}: ${scene.title || 'Untitled'}…`);
+                await this.analyzeScene(scene.id, { automatic: true, quiet: true });
+            }
+            $progress.text(batch.stopped ? 'Stopped.' : `Done. ${this.suggestions.length} suggestion(s) waiting for review.`);
+        } finally {
+            if (this.#batch === batch) {
+                this.#batch = null;
+            }
+            this.#root.find('.ns-analyze-all').prop('hidden', false);
+            this.#root.find('.ns-analyze-all-stop').prop('hidden', true);
+            this.renderSuggestions();
         }
     }
 
@@ -773,6 +831,12 @@ export class CodexPanel {
             }
         });
         $root.on('click', '.ns-accept-all', () => this.#resolveAll('accept'));
+        $root.on('click', '.ns-analyze-all', () => this.analyzeAll());
+        $root.on('click', '.ns-analyze-all-stop', () => {
+            if (this.#batch) {
+                this.#batch.stopped = true;
+            }
+        });
         $root.on('click', '.ns-reject-all', () => this.#resolveAll('reject'));
 
         $root.on('click', '.ns-analyze-scene', () => {

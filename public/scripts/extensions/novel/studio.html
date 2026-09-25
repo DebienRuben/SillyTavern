@@ -11,6 +11,7 @@
             <button type="button" class="menu_button ns-snapshot" title="Save a named snapshot of the whole project">
                 <i class="fa-solid fa-camera-retro"></i><span>Snapshot</span>
             </button>
+            <button type="button" class="ns-icon-button ns-export fa-solid fa-file-export" title="Export the manuscript (Markdown, Word, EPUB)"></button>
             <button type="button" class="ns-icon-button ns-ai-settings fa-solid fa-wand-magic-sparkles" title="AI settings"></button>
             <button type="button" class="ns-icon-button ns-project-settings fa-solid fa-gear" title="Project settings"></button>
             <button type="button" class="ns-icon-button ns-show-projects fa-solid fa-book" title="All projects"></button>
@@ -22,7 +23,11 @@
     <section class="ns-projects">
         <div class="ns-projects-header">
             <h2>Your novels</h2>
-            <button type="button" class="menu_button ns-new-project"><i class="fa-solid fa-plus"></i><span>New novel</span></button>
+            <div class="ns-projects-actions">
+                <button type="button" class="menu_button ns-import-project" title="Create a novel from a Markdown or text file"><i class="fa-solid fa-file-import"></i><span>Import</span></button>
+                <button type="button" class="menu_button ns-new-project"><i class="fa-solid fa-plus"></i><span>New novel</span></button>
+            </div>
+            <input type="file" class="ns-import-file" accept=".md,.markdown,.txt,text/plain,text/markdown" hidden />
         </div>
         <div class="ns-project-list"></div>
     </section>
@@ -163,6 +168,13 @@
                     <span class="ns-suggestions-count"></span>
                     <button type="button" class="menu_button ns-accept-all">Accept all</button>
                     <button type="button" class="menu_button ns-reject-all">Reject all</button>
+                </div>
+                <div class="ns-panel-toolbar ns-analyze-all-row">
+                    <button type="button" class="menu_button ns-analyze-all" title="Analyze every written scene in order, e.g. after importing a manuscript">
+                        <i class="fa-solid fa-layer-group"></i><span>Analyze all scenes</span>
+                    </button>
+                    <button type="button" class="menu_button ns-analyze-all-stop" hidden>Stop</button>
+                    <span class="ns-hint ns-analyze-all-progress"></span>
                 </div>
                 <div class="ns-suggestions"></div>
             </div>

@@ -12,6 +12,7 @@ import {
     getProject,
     getScene,
     getSceneVersion,
+    importProject,
     listProjects,
     saveScene,
     saveStructure,
@@ -31,6 +32,7 @@ import {
 } from '../novel/codex.js';
 import { getSummaryState, saveSummary } from '../novel/memory.js';
 import { searchManuscript } from '../novel/search.js';
+import { exportProject } from '../novel/export.js';
 
 export const router = express.Router();
 
@@ -173,3 +175,20 @@ router.post('/threads/list', handle(request => listThreads(request.user.director
 router.post('/threads/save', handle(request => saveThread(request.user.directories, request.body?.id, request.body?.thread)));
 
 router.post('/threads/delete', handle(request => deleteThread(request.user.directories, request.body?.id, request.body?.threadId)));
+
+router.post('/import', handle(request => importProject(request.user.directories, request.body)));
+
+router.post('/export', async (request, response) => {
+    try {
+        const file = await exportProject(request.user.directories, request.body?.id, request.body?.format, request.body?.options);
+        response.setHeader('Content-Type', file.contentType);
+        response.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`);
+        return response.send(file.data);
+    } catch (error) {
+        if (error instanceof NovelError) {
+            return response.status(error.status).send({ error: error.message });
+        }
+        console.error('Novel export error:', error);
+        return response.status(500).send({ error: 'Internal server error' });
+    }
+});

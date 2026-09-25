@@ -123,7 +123,7 @@
     gap: 4px;
 }
 
-.novel-studio[data-view="projects"] :is(.ns-toggle-left, .ns-toggle-right, .ns-snapshot, .ns-project-settings, .ns-show-projects, .ns-stats, .ns-save-status) {
+.novel-studio[data-view="projects"] :is(.ns-toggle-left, .ns-toggle-right, .ns-snapshot, .ns-export, .ns-project-settings, .ns-show-projects, .ns-stats, .ns-save-status) {
     display: none;
 }
 
@@ -1495,4 +1495,42 @@
 
 .ns-scene-cast .ns-check-continuity {
     margin-top: 4px;
+}
+
+/* ---- Novel-only mode ---- */
+
+body.novel-only :is(#advanced-formatting-button, #WI-SP-button, #backgrounds-button, #persona-management-button, #rightNavHolder) {
+    display: none !important;
+}
+
+body.novel-only .novel-studio .ns-close {
+    display: none;
+}
+
+/* ---- Import preview ---- */
+
+.ns-projects-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.ns-import-chapters {
+    max-height: 40vh;
+    overflow-y: auto;
+    margin: 0;
+    padding-left: 24px;
+    text-align: left;
+    font-size: 0.9em;
+}
+
+.ns-analyze-all-row {
+    flex-wrap: wrap;
+}
+
+.ns-analyze-all-row .menu_button[hidden] {
+    display: none;
+}
+
+.ns-analyze-all-progress {
+    padding: 0;
 }

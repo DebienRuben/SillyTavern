@@ -441,6 +441,58 @@ export async function createProject(directories, fields) {
     return { project, structure };
 }
 
+/** Upper limits for imported manuscripts. */
+const IMPORT_LIMITS = Object.freeze({ chapters: 1000, scenes: 5000 });
+
+/**
+ * Creates a project from an imported manuscript that the client already split into
+ * chapters and scenes.
+ * @param {import('../users.js').UserDirectoryList} directories User directories
+ * @param {any} input { title, author, chapters: [{ title, scenes: [{ title, content }] }] }
+ */
+export async function importProject(directories, input) {
+    const chapters = Array.isArray(input?.chapters) ? input.chapters : [];
+    const sceneCount = chapters.reduce((sum, chapter) => sum + (Array.isArray(chapter?.scenes) ? chapter.scenes.length : 0), 0);
+    if (chapters.length === 0 || sceneCount === 0) {
+        throw new NovelError(400, 'The manuscript has no chapters to import');
+    }
+    if (chapters.length > IMPORT_LIMITS.chapters || sceneCount > IMPORT_LIMITS.scenes) {
+        throw new NovelError(400, 'The manuscript has too many chapters or scenes');
+    }
+
+    const { project } = await createProject(directories, { title: input.title, author: input.author });
+    const paths = projectPaths(directories, project.id);
+    return withLock(project.id, async () => {
+        // Replace the starter chapter that createProject made
+        for (const file of fs.readdirSync(paths.scenes)) {
+            fs.rmSync(path.join(paths.scenes, file));
+        }
+        const draft = {
+            chapters: chapters.map((/** @type {any} */ chapter, index) => ({
+                id: newId('chapter'),
+                title: text(chapter.title, LIMITS.title) || `Chapter ${index + 1}`,
+                scenes: (Array.isArray(chapter.scenes) ? chapter.scenes : []).map((/** @type {any} */ scene, sceneIndex) => ({
+                    id: newId('scene'),
+                    title: text(scene?.title, LIMITS.title) || `Scene ${sceneIndex + 1}`,
+                    status: 'draft',
+                    content: typeof scene?.content === 'string' ? scene.content.slice(0, LIMITS.scene) : '',
+                })),
+            })),
+        };
+        const structure = normalizeStructure(draft, null);
+        draft.chapters.forEach((chapter, chapterIndex) => {
+            chapter.scenes.forEach((scene, sceneIndex) => {
+                fs.writeFileSync(paths.scene(scene.id), scene.content, 'utf8');
+                structure.chapters[chapterIndex].scenes[sceneIndex].wordCount = countWords(scene.content);
+            });
+        });
+        writeJson(paths.structure, structure);
+        touchProject(paths, project);
+        await commitAll(paths.root, 'Import manuscript');
+        return { project, structure };
+    });
+}
+
 /**
  * Gets a project's metadata and structure.
  * @param {import('../users.js').UserDirectoryList} directories User directories

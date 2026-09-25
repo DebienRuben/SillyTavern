@@ -6,6 +6,8 @@ const MODULE = 'novel';
 
 const DEFAULT_SETTINGS = Object.freeze({
     openOnStartup: false,
+    /** Hide SillyTavern's roleplay features and keep Novel Studio open. */
+    novelOnly: false,
     /** @type {string|null} */
     lastProjectId: null,
     /** @type {Record<string, string>} */
@@ -34,6 +36,10 @@ async function toggleStudio() {
         return;
     }
     try {
+        // In novel-only mode the studio stays open
+        if (studio.isOpen && extension_settings[MODULE].novelOnly) {
+            return;
+        }
         if (studio.isOpen) {
             await studio.close();
         } else {
@@ -70,7 +76,23 @@ async function addSettingsPanel() {
             extension_settings[MODULE].openOnStartup = !!$(this).prop('checked');
             saveSettingsDebounced();
         });
+    $('#novel_novel_only')
+        .prop('checked', extension_settings[MODULE].novelOnly)
+        .on('change', function () {
+            extension_settings[MODULE].novelOnly = !!$(this).prop('checked');
+            saveSettingsDebounced();
+            applyNovelOnly();
+        });
     $('#novel_open_studio').on('click', () => studio?.isOpen || toggleStudio());
+}
+
+/** Applies novel-only mode: hides the roleplay parts of SillyTavern and keeps the studio open. */
+function applyNovelOnly() {
+    const enabled = extension_settings[MODULE].novelOnly;
+    document.body.classList.toggle('novel-only', enabled);
+    if (enabled && studio && !studio.isOpen) {
+        toggleStudio();
+    }
 }
 
 export async function init() {
@@ -83,7 +105,9 @@ export async function init() {
     await addSettingsPanel();
 
     eventSource.once(event_types.APP_READY, () => {
-        if (extension_settings[MODULE].openOnStartup) {
+        if (extension_settings[MODULE].novelOnly) {
+            applyNovelOnly();
+        } else if (extension_settings[MODULE].openOnStartup) {
             toggleStudio();
         }
     });
