@@ -587,7 +587,7 @@ export class CodexPanel {
         this.#root.find('.ns-analyze-all-stop').prop('hidden', false);
         try {
             for (const [index, scene] of scenes.entries()) {
-                if (batch.stopped || this.#batch !== batch) {
+                if (batch.stopped) {
                     break;
                 }
                 $progress.text(`Analyzing scene ${index + 1} of ${scenes.length}: ${scene.title || 'Untitled'}…`);

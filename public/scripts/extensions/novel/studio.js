@@ -119,7 +119,8 @@ export class NovelStudio {
 
     /** Saves pending work, takes a snapshot and hides the studio. */
     async close() {
-        if (!await this.#leaveProject('Closed Novel Studio')) {
+        // In novel-only mode the studio stays open
+        if (this.settings.novelOnly || !await this.#leaveProject('Closed Novel Studio')) {
             return;
         }
         window.removeEventListener('beforeunload', this.#onBeforeUnload);
@@ -794,8 +795,7 @@ export class NovelStudio {
         $form.append($('<p>').text(`Found ${split.chapters.length} chapter(s) and ${sceneCount} scene(s), ${split.wordCount.toLocaleString()} words.`));
         const $list = $('<ol class="ns-import-chapters">');
         for (const chapter of split.chapters) {
-            const words = chapter.scenes.reduce((sum, scene) => sum + (scene.content.match(/[\p{L}\p{N}]+/gu)?.length ?? 0), 0);
-            $list.append($('<li>').text(`${chapter.title} · ${chapter.scenes.length} scene(s) · ${words.toLocaleString()} words`));
+            $list.append($('<li>').text(`${chapter.title} · ${chapter.scenes.length} scene(s) · ${chapter.wordCount.toLocaleString()} words`));
         }
         $form.append($list);
         $form.append('<p class="ns-hint">Chapters start at headings (# or ##) or lines like "Chapter 3" and "Prologue". Scenes are split at *** or * * *, --- and # lines. Everything can be rearranged after importing.</p>');

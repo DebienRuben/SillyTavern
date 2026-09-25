@@ -320,22 +320,17 @@ async function commitAll(dir, message) {
     await ensureRepo(dir);
     ensureGitignore(dir);
     const matrix = await git.statusMatrix({ fs, dir });
-    let changed = false;
-
-    for (const [filepath, head, workdir, stage] of matrix) {
-        if (head === 1 && workdir === 1 && stage === 1) {
-            continue;
-        }
-        changed = true;
-        if (workdir === 0) {
-            await git.remove({ fs, dir, filepath });
-        } else {
-            await git.add({ fs, dir, filepath });
-        }
+    const changed = matrix.filter(([, head, workdir, stage]) => !(head === 1 && workdir === 1 && stage === 1));
+    if (changed.length === 0) {
+        return null;
     }
 
-    if (!changed) {
-        return null;
+    const added = changed.filter(([, , workdir]) => workdir !== 0).map(([filepath]) => filepath);
+    if (added.length > 0) {
+        await git.add({ fs, dir, filepath: added });
+    }
+    for (const [filepath] of changed.filter(([, , workdir]) => workdir === 0)) {
+        await git.remove({ fs, dir, filepath });
     }
     return git.commit({ fs, dir, message, author: GIT_AUTHOR });
 }
@@ -399,12 +394,17 @@ function applyProjectFields(project, fields) {
     }
 }
 
+/** The chapters a new project starts with: one empty chapter and scene. */
+const STARTER_CHAPTERS = Object.freeze([{ title: 'Chapter 1', scenes: [{ title: 'Scene 1', content: '' }] }]);
+
 /**
- * Creates a project with one empty chapter and scene.
+ * Creates a project.
  * @param {import('../users.js').UserDirectoryList} directories User directories
  * @param {any} fields Initial project fields
+ * @param {readonly { title: string, scenes: readonly { title: string, content: string }[] }[]} [chapters] Initial chapters and scene contents
+ * @param {string} [message] Commit message
  */
-export async function createProject(directories, fields) {
+export async function createProject(directories, fields, chapters = STARTER_CHAPTERS, message = 'Create project') {
     const id = newId('novel');
     const paths = projectPaths(directories, id);
     const now = Date.now();
@@ -427,17 +427,24 @@ export async function createProject(directories, fields) {
         project.title = 'Untitled novel';
     }
 
-    const sceneId = newId('scene');
-    const structure = normalizeStructure({
-        chapters: [{ id: newId('chapter'), title: 'Chapter 1', scenes: [{ id: sceneId, title: 'Scene 1' }] }],
-    }, null);
+    const draft = {
+        chapters: chapters.map(chapter => ({
+            id: newId('chapter'),
+            title: chapter.title,
+            scenes: chapter.scenes.map(scene => ({ id: newId('scene'), title: scene.title, content: scene.content, wordCount: countWords(scene.content) })),
+        })),
+    };
+    // The draft doubles as the previous structure, so its word counts carry over
+    const structure = normalizeStructure(draft, draft);
 
-    fs.mkdirSync(paths.scenes, { recursive: true });
+    await fs.promises.mkdir(paths.scenes, { recursive: true });
     writeJson(paths.project, project);
     writeJson(paths.structure, structure);
-    fs.writeFileSync(paths.scene(sceneId), '', 'utf8');
+    for (const scene of draft.chapters.flatMap(chapter => chapter.scenes)) {
+        await fs.promises.writeFile(paths.scene(scene.id), scene.content, 'utf8');
+    }
 
-    await withLock(id, () => commitAll(paths.root, 'Create project'));
+    await withLock(id, () => commitAll(paths.root, message));
     return { project, structure };
 }
 
@@ -460,37 +467,13 @@ export async function importProject(directories, input) {
         throw new NovelError(400, 'The manuscript has too many chapters or scenes');
     }
 
-    const { project } = await createProject(directories, { title: input.title, author: input.author });
-    const paths = projectPaths(directories, project.id);
-    return withLock(project.id, async () => {
-        // Replace the starter chapter that createProject made
-        for (const file of fs.readdirSync(paths.scenes)) {
-            fs.rmSync(path.join(paths.scenes, file));
-        }
-        const draft = {
-            chapters: chapters.map((/** @type {any} */ chapter, index) => ({
-                id: newId('chapter'),
-                title: text(chapter.title, LIMITS.title) || `Chapter ${index + 1}`,
-                scenes: (Array.isArray(chapter.scenes) ? chapter.scenes : []).map((/** @type {any} */ scene, sceneIndex) => ({
-                    id: newId('scene'),
-                    title: text(scene?.title, LIMITS.title) || `Scene ${sceneIndex + 1}`,
-                    status: 'draft',
-                    content: typeof scene?.content === 'string' ? scene.content.slice(0, LIMITS.scene) : '',
-                })),
-            })),
-        };
-        const structure = normalizeStructure(draft, null);
-        draft.chapters.forEach((chapter, chapterIndex) => {
-            chapter.scenes.forEach((scene, sceneIndex) => {
-                fs.writeFileSync(paths.scene(scene.id), scene.content, 'utf8');
-                structure.chapters[chapterIndex].scenes[sceneIndex].wordCount = countWords(scene.content);
-            });
-        });
-        writeJson(paths.structure, structure);
-        touchProject(paths, project);
-        await commitAll(paths.root, 'Import manuscript');
-        return { project, structure };
-    });
+    return createProject(directories, { title: input.title, author: input.author }, chapters.map((/** @type {any} */ chapter, index) => ({
+        title: text(chapter?.title, LIMITS.title) || `Chapter ${index + 1}`,
+        scenes: (Array.isArray(chapter?.scenes) ? chapter.scenes : []).map((/** @type {any} */ scene, sceneIndex) => ({
+            title: text(scene?.title, LIMITS.title) || `Scene ${sceneIndex + 1}`,
+            content: typeof scene?.content === 'string' ? scene.content.slice(0, LIMITS.scene) : '',
+        })),
+    })), 'Import manuscript');
 }
 
 /**

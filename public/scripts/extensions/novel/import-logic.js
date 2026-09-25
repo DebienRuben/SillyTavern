@@ -3,6 +3,8 @@
  * Pure functions only, so the splitting can be unit tested.
  */
 
+import { countWords } from './ai/prompt.js';
+
 /** Lines that start a chapter: Markdown headings, or "Chapter 12", "Prologue" and similar on their own line. */
 const CHAPTER_LINE = /^(?:chapter|hoofdstuk|chapitre|kapitel|cap[ií]tulo|capitolo)\s+[\p{L}\p{N}]+\b.*$|^(?:prologue|epilogue|proloog|epiloog|prolog|epilog|interlude)\b.*$|^part\s+[\p{L}\p{N}]+\b.*$/iu;
 /** Lines that are only a scene break: *** or * * *, ---, #, ~~~, or a single ornament. */
@@ -21,15 +23,16 @@ const MAX_HEADING_WORDS = 10;
  * @typedef {object} ImportedChapter
  * @property {string} title
  * @property {ImportedScene[]} scenes
+ * @property {number} wordCount
  */
 
 /**
- * Counts words in a text.
- * @param {string} text
- * @returns {number}
+ * Whether a trimmed line is short enough, and unlike enough to a sentence, to be a heading.
+ * @param {string} line Trimmed line
+ * @returns {boolean}
  */
-function countWords(text) {
-    return text.match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu)?.length ?? 0;
+function looksLikeHeading(line) {
+    return line.length <= MAX_HEADING_LENGTH && line.split(/\s+/).length <= MAX_HEADING_WORDS && !/[.!?,;]$/.test(line);
 }
 
 /**
@@ -69,46 +72,43 @@ export function splitManuscript(input, fileName = '') {
     let title = titleFromH1 ? h1[0].replace(/^#\s+/, '').trim() : '';
 
     const isChapterHeading = (/** @type {string} */ line, /** @type {number} */ index) => {
-        if (titleFromH1 && /^#\s+\S/.test(line)) {
-            return false;
-        }
         if (/^#{1,2}\s+\S/.test(line)) {
             return true;
         }
         // Plain-text headings stand alone (blank line or start before them), are short,
         // and do not read like a sentence ("Chapter one was long." is prose, not a heading)
         const trimmed = line.trim();
-        const standalone = (index === 0 || !lines[index - 1].trim()) && trimmed.length <= MAX_HEADING_LENGTH;
-        const headingLike = !/[.!?,;]$/.test(trimmed) && trimmed.split(/\s+/).length <= MAX_HEADING_WORDS;
-        return standalone && headingLike && CHAPTER_LINE.test(trimmed);
+        const standalone = index === 0 || !lines[index - 1].trim();
+        return standalone && looksLikeHeading(trimmed) && CHAPTER_LINE.test(trimmed);
     };
 
     /** @type {{ title: string, lines: string[] }[]} */
     const rawChapters = [];
     let current = { title: '', lines: /** @type {string[]} */ ([]) };
+    const pushChapter = () => {
+        if (current.title || current.lines.some(l => l.trim())) {
+            rawChapters.push(current);
+        }
+    };
     lines.forEach((line, index) => {
         if (titleFromH1 && /^#\s+\S/.test(line)) {
             return;
         }
         if (isChapterHeading(line, index)) {
-            if (current.title || current.lines.some(l => l.trim())) {
-                rawChapters.push(current);
-            }
+            pushChapter();
             current = { title: line.replace(/^#{1,2}\s+/, '').trim(), lines: [] };
             return;
         }
         current.lines.push(line);
     });
-    if (current.title || current.lines.some(l => l.trim())) {
-        rawChapters.push(current);
-    }
+    pushChapter();
 
     // Plain text often starts with the book title on a line of its own, before the first chapter
     const opening = rawChapters[0];
     const openingLines = opening && !opening.title ? opening.lines.filter(l => l.trim()) : [];
     if (!title && rawChapters.length > 1 && openingLines.length === 1) {
         const line = openingLines[0].trim();
-        if (line.length <= MAX_HEADING_LENGTH && line.split(/\s+/).length <= MAX_HEADING_WORDS && !/[.!?,;:]$/.test(line)) {
+        if (looksLikeHeading(line) && !line.endsWith(':')) {
             title = line;
             rawChapters.shift();
         }
@@ -133,13 +133,14 @@ export function splitManuscript(input, fileName = '') {
                 }
             }
             pushScene();
-            return { title: chapter.title || (index === 0 ? 'Opening' : `Chapter ${index + 1}`), scenes };
+            const wordCount = scenes.reduce((sum, scene) => sum + countWords(scene.content), 0);
+            return { title: chapter.title || (index === 0 ? 'Opening' : `Chapter ${index + 1}`), scenes, wordCount };
         })
         .filter(chapter => chapter.scenes.length > 0);
 
     if (!title) {
         title = fileName.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || 'Imported novel';
     }
-    const wordCount = chapters.reduce((sum, chapter) => sum + chapter.scenes.reduce((s, scene) => s + countWords(scene.content), 0), 0);
+    const wordCount = chapters.reduce((sum, chapter) => sum + chapter.wordCount, 0);
     return { title, chapters, wordCount };
 }

@@ -2,14 +2,16 @@ import fs from 'node:fs';
 import { PassThrough } from 'node:stream';
 
 import archiver from 'archiver';
+import sanitize from 'sanitize-filename';
 
 import { NovelError, projectPaths, readProjectFiles } from './store.js';
 
+/** @type {Readonly<Record<string, { extension: string, contentType: string, render: (manuscript: Manuscript, options: ExportOptions) => string | Promise<Buffer> }>>} */
 export const EXPORT_FORMATS = Object.freeze({
-    md: { extension: 'md', contentType: 'text/markdown; charset=utf-8' },
-    txt: { extension: 'txt', contentType: 'text/plain; charset=utf-8' },
-    docx: { extension: 'docx', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
-    epub: { extension: 'epub', contentType: 'application/epub+zip' },
+    md: { extension: 'md', contentType: 'text/markdown; charset=utf-8', render: toMarkdown },
+    txt: { extension: 'txt', contentType: 'text/plain; charset=utf-8', render: toPlainText },
+    docx: { extension: 'docx', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', render: toDocx },
+    epub: { extension: 'epub', contentType: 'application/epub+zip', render: toEpub },
 });
 
 const SCENE_BREAK = '* * *';
@@ -150,24 +152,65 @@ export function exportChapterTitle(number, title) {
  * Reads the manuscript in order, leaving out empty scenes and chapters.
  * @param {import('../users.js').UserDirectoryList} directories User directories
  * @param {string} projectId Project ID
- * @returns {Manuscript}
+ * @returns {Promise<Manuscript>}
  */
-export function readManuscript(directories, projectId) {
+export async function readManuscript(directories, projectId) {
     const paths = projectPaths(directories, projectId);
     const { project, structure } = readProjectFiles(paths);
+    const readScene = (/** @type {any} */ scene) => fs.promises.readFile(paths.scene(scene.id), 'utf8')
+        .catch(error => error.code === 'ENOENT' ? '' : Promise.reject(error))
+        .then(content => ({ title: scene.title, content: content.trim() }));
     const chapters = [];
     for (const [index, chapter] of structure.chapters.entries()) {
-        const scenes = chapter.scenes
-            .map((/** @type {any} */ scene) => {
-                const filePath = paths.scene(scene.id);
-                return { title: scene.title, content: fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8').trim() : '' };
-            })
-            .filter((/** @type {any} */ scene) => scene.content);
+        const scenes = (await Promise.all(chapter.scenes.map(readScene))).filter(scene => scene.content);
         if (scenes.length > 0) {
             chapters.push({ number: index + 1, title: chapter.title, scenes });
         }
     }
     return { project, chapters };
+}
+
+/**
+ * @typedef {{ kind: 'sceneTitle' | 'break' | 'heading' | 'quote', inlines: Inline[] } | { kind: 'paragraph', inlines: Inline[], first: boolean }} SceneItem
+ */
+
+/**
+ * Lays out one scene for the book formats: its title or the break before it, then its blocks.
+ * Book convention: the first paragraph after a heading or break is marked so it gets no indent.
+ * @param {{ title: string, content: string }} scene
+ * @param {number} index Position of the scene in its chapter
+ * @param {ExportOptions} options
+ * @returns {SceneItem[]}
+ */
+function layoutScene(scene, index, options) {
+    /** @type {SceneItem[]} */
+    const items = [];
+    if (options.sceneTitles) {
+        items.push({ kind: 'sceneTitle', inlines: [{ text: scene.title || 'Untitled scene' }] });
+    } else if (index > 0) {
+        items.push({ kind: 'break', inlines: [{ text: SCENE_BREAK }] });
+    }
+    let first = true;
+    for (const block of parseBlocks(scene.content)) {
+        if (block.type === 'break') {
+            items.push({ kind: 'break', inlines: [{ text: SCENE_BREAK }] });
+            first = true;
+        } else if (block.type === 'heading') {
+            items.push({ kind: 'heading', inlines: block.inlines });
+            first = true;
+        } else if (block.type === 'quote') {
+            items.push({ kind: 'quote', inlines: block.inlines });
+        } else {
+            items.push({ kind: 'paragraph', inlines: block.inlines, first });
+            first = false;
+        }
+    }
+    return items;
+}
+
+/** @returns {string} The current time as an ISO timestamp without milliseconds */
+function isoSeconds() {
+    return new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 }
 
 /**
@@ -271,6 +314,9 @@ function docxParagraph(style, runs) {
     return `<w:p><w:pPr><w:pStyle w:val="${style}"/></w:pPr>${runs}</w:p>`;
 }
 
+/** DOCX paragraph styles for the scene items other than paragraphs. */
+const DOCX_STYLES = Object.freeze({ sceneTitle: 'Heading2', break: 'SceneBreak', heading: 'Heading3', quote: 'Quote' });
+
 /**
  * Builds a DOCX file: a title page, then one chapter per page, first-line indents and
  * centred scene breaks, in a book-like Georgia layout.
@@ -288,26 +334,9 @@ export function toDocx(manuscript, options = {}) {
         // Heading1 starts on a new page (pageBreakBefore in its style)
         body.push(docxParagraph('Heading1', docxRuns([{ text: exportChapterTitle(chapter.number, chapter.title) }])));
         chapter.scenes.forEach((scene, index) => {
-            if (options.sceneTitles) {
-                body.push(docxParagraph('Heading2', docxRuns([{ text: scene.title || 'Untitled scene' }])));
-            } else if (index > 0) {
-                body.push(docxParagraph('SceneBreak', docxRuns([{ text: SCENE_BREAK }])));
-            }
-            let first = true;
-            for (const block of parseBlocks(scene.content)) {
-                if (block.type === 'break') {
-                    body.push(docxParagraph('SceneBreak', docxRuns([{ text: SCENE_BREAK }])));
-                    first = true;
-                } else if (block.type === 'heading') {
-                    body.push(docxParagraph('Heading3', docxRuns(block.inlines)));
-                    first = true;
-                } else if (block.type === 'quote') {
-                    body.push(docxParagraph('Quote', docxRuns(block.inlines)));
-                } else {
-                    // Book convention: no indent on the first paragraph after a heading or break
-                    body.push(docxParagraph(first ? 'FirstParagraph' : 'BodyText', docxRuns(block.inlines)));
-                    first = false;
-                }
+            for (const item of layoutScene(scene, index, options)) {
+                const style = item.kind === 'paragraph' ? (item.first ? 'FirstParagraph' : 'BodyText') : DOCX_STYLES[item.kind];
+                body.push(docxParagraph(style, docxRuns(item.inlines)));
             }
         });
     }
@@ -333,7 +362,7 @@ ${style('SceneBreak', 'Scene Break', '<w:spacing w:before="240" w:after="240"/><
 ${style('Quote', 'Quote', '<w:ind w:left="720" w:right="720"/><w:spacing w:before="120" w:after="120"/>', '<w:i/>')}
 </w:styles>`;
 
-    const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+    const now = isoSeconds();
     const core = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${escapeXml(project.title)}</dc:title><dc:creator>${escapeXml(project.author ?? '')}</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`;
 
@@ -397,31 +426,19 @@ export function toEpub(manuscript, options = {}) {
     const { project } = manuscript;
     const language = options.language ?? 'en';
     const bookId = `urn:uuid:${options.bookId ?? project.id}`;
-    const modified = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+    const modified = isoSeconds();
 
     const chapters = manuscript.chapters.map((chapter, index) => {
         const title = exportChapterTitle(chapter.number, chapter.title);
         const body = [`<section epub:type="chapter"><h1>${escapeXml(title)}</h1>`];
         chapter.scenes.forEach((scene, sceneIndex) => {
-            if (options.sceneTitles) {
-                body.push(`<h2>${escapeXml(scene.title || 'Untitled scene')}</h2>`);
-            } else if (sceneIndex > 0) {
-                body.push('<p class="scene-break">* * *</p>');
-            }
-            let first = true;
-            for (const block of parseBlocks(scene.content)) {
-                if (block.type === 'break') {
-                    body.push('<p class="scene-break">* * *</p>');
-                    first = true;
-                } else if (block.type === 'heading') {
-                    body.push(`<h3>${xhtmlInlines(block.inlines)}</h3>`);
-                    first = true;
-                } else if (block.type === 'quote') {
-                    body.push(`<blockquote><p>${xhtmlInlines(block.inlines)}</p></blockquote>`);
-                } else {
-                    body.push(`<p${first ? ' class="first"' : ''}>${xhtmlInlines(block.inlines)}</p>`);
-                    first = false;
-                }
+            for (const item of layoutScene(scene, sceneIndex, options)) {
+                const inlines = xhtmlInlines(item.inlines);
+                body.push(item.kind === 'sceneTitle' ? `<h2>${inlines}</h2>`
+                    : item.kind === 'break' ? `<p class="scene-break">${inlines}</p>`
+                        : item.kind === 'heading' ? `<h3>${inlines}</h3>`
+                            : item.kind === 'quote' ? `<blockquote><p>${inlines}</p></blockquote>`
+                                : `<p${item.first ? ' class="first"' : ''}>${inlines}</p>`);
             }
         });
         body.push('</section>');
@@ -495,16 +512,13 @@ export async function exportProject(directories, projectId, format, options = {}
     if (typeof format !== 'string' || !Object.hasOwn(EXPORT_FORMATS, format)) {
         throw new NovelError(400, 'Unsupported export format');
     }
-    const manuscript = readManuscript(directories, projectId);
+    const manuscript = await readManuscript(directories, projectId);
     if (manuscript.chapters.length === 0) {
         throw new NovelError(400, 'There is no text to export yet');
     }
     const settings = { sceneTitles: Boolean(options?.sceneTitles) };
-    const { extension, contentType } = EXPORT_FORMATS[format];
-    const data = format === 'md' ? Buffer.from(toMarkdown(manuscript, settings), 'utf8')
-        : format === 'txt' ? Buffer.from(toPlainText(manuscript, settings), 'utf8')
-            : format === 'docx' ? await toDocx(manuscript, settings)
-                : await toEpub(manuscript, settings);
-    const safeTitle = manuscript.project.title.replace(/[^\p{L}\p{N} _-]+/gu, '').trim().replace(/\s+/g, ' ') || 'novel';
+    const { extension, contentType, render } = EXPORT_FORMATS[format];
+    const data = Buffer.from(await render(manuscript, settings));
+    const safeTitle = sanitize(manuscript.project.title).replace(/\s+/g, ' ').trim() || 'novel';
     return { filename: `${safeTitle}.${extension}`, contentType, data };
 }

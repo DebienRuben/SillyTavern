@@ -1,4 +1,5 @@
 import { getRequestHeaders } from '../../../script.js';
+import { download } from '../../utils.js';
 
 /**
  * Error returned by the novel API, with the HTTP status.
@@ -54,14 +55,8 @@ async function downloadExport(id, format, options) {
     const disposition = response.headers.get('Content-Disposition') ?? '';
     const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/)?.[1];
     const filename = encoded ? decodeURIComponent(encoded) : `novel.${format}`;
-    const url = URL.createObjectURL(await response.blob());
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    const blob = await response.blob();
+    download(blob, filename, blob.type);
     return filename;
 }
 

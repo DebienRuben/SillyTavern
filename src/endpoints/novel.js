@@ -37,6 +37,19 @@ import { exportProject } from '../novel/export.js';
 export const router = express.Router();
 
 /**
+ * Sends an error response: a NovelError's own status and message, or a logged 500.
+ * @param {import('express').Response} response
+ * @param {unknown} error
+ */
+function sendError(response, error) {
+    if (error instanceof NovelError) {
+        return response.status(error.status).send({ error: error.message });
+    }
+    console.error('Novel endpoint error:', error);
+    return response.status(500).send({ error: 'Internal server error' });
+}
+
+/**
  * Wraps a route handler with shared error handling.
  * @param {(request: import('express').Request) => Promise<any> | any} handler Returns the response body
  * @returns {import('express').RequestHandler}
@@ -47,11 +60,7 @@ function handle(handler) {
             const result = await handler(request);
             return response.send(result ?? {});
         } catch (error) {
-            if (error instanceof NovelError) {
-                return response.status(error.status).send({ error: error.message });
-            }
-            console.error('Novel endpoint error:', error);
-            return response.status(500).send({ error: 'Internal server error' });
+            return sendError(response, error);
         }
     };
 }
@@ -185,10 +194,6 @@ router.post('/export', async (request, response) => {
         response.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`);
         return response.send(file.data);
     } catch (error) {
-        if (error instanceof NovelError) {
-            return response.status(error.status).send({ error: error.message });
-        }
-        console.error('Novel export error:', error);
-        return response.status(500).send({ error: 'Internal server error' });
+        return sendError(response, error);
     }
 });

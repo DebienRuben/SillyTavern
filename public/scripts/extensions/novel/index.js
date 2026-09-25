@@ -36,10 +36,6 @@ async function toggleStudio() {
         return;
     }
     try {
-        // In novel-only mode the studio stays open
-        if (studio.isOpen && extension_settings[MODULE].novelOnly) {
-            return;
-        }
         if (studio.isOpen) {
             await studio.close();
         } else {
