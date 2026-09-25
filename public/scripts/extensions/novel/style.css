@@ -227,6 +227,19 @@
     display: none;
 }
 
+/* Fixed columns, so hiding a side panel never shifts the editor into its column */
+.ns-left {
+    grid-column: 1;
+}
+
+.ns-main {
+    grid-column: 2;
+}
+
+.ns-right {
+    grid-column: 3;
+}
+
 .ns-left,
 .ns-right {
     min-height: 0;
@@ -489,6 +502,182 @@
     color: var(--ns-muted);
 }
 
+/* ---- AI tools ---- */
+
+.ns-ai-tools {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.ns-toolbar .ns-length {
+    width: auto;
+    margin: 0;
+    padding: 2px 6px;
+    height: 28px;
+    font-size: 0.85em;
+    color: var(--SmartThemeBodyColor);
+    background-color: var(--black30a);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 5px;
+}
+
+.ns-toolbar .ns-ai-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    font-weight: normal;
+}
+
+.ns-toolbar .ns-ai-button:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.ns-toolbar .ns-ai-continue {
+    border-color: var(--SmartThemeQuoteColor);
+}
+
+.ns-proposal {
+    position: sticky;
+    bottom: 12px;
+    z-index: 1;
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    max-height: 50vh;
+    border: 1px solid var(--SmartThemeQuoteColor);
+    border-radius: 10px;
+    background-color: var(--ns-panel-bg);
+    backdrop-filter: blur(calc(var(--SmartThemeBlurStrength) * 2));
+    -webkit-backdrop-filter: blur(calc(var(--SmartThemeBlurStrength) * 2));
+    box-shadow: 0 4px 24px var(--black70a);
+}
+
+.ns-proposal[hidden] {
+    display: none;
+}
+
+.ns-proposal-header,
+.ns-proposal-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+}
+
+.ns-proposal-header {
+    border-bottom: 1px solid var(--SmartThemeBorderColor);
+}
+
+.ns-proposal-title {
+    font-weight: bold;
+}
+
+.ns-proposal[data-status="running"] .ns-proposal-title::after {
+    content: '';
+    display: inline-block;
+    width: 0.6em;
+    height: 0.6em;
+    margin-left: 8px;
+    border-radius: 50%;
+    background-color: var(--SmartThemeQuoteColor);
+    animation: ns-pulse 1s ease-in-out infinite alternate;
+}
+
+@keyframes ns-pulse {
+    from { opacity: 0.2; }
+    to { opacity: 1; }
+}
+
+.ns-proposal-meta {
+    flex: 1 1 auto;
+    color: var(--ns-muted);
+    font-size: 0.85em;
+}
+
+.ns-proposal-text {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 12px 16px 0;
+    min-height: 0;
+}
+
+.ns-proposal-error {
+    color: var(--warning, #e6a23c);
+    font-family: var(--mainFontFamily, sans-serif);
+    font-size: 0.95rem;
+}
+
+.ns-proposal-actions {
+    border-top: 1px solid var(--SmartThemeBorderColor);
+    justify-content: flex-end;
+}
+
+.ns-proposal-accept {
+    border-color: var(--SmartThemeQuoteColor) !important;
+    font-weight: bold;
+}
+
+.ns-editor .ProseMirror[contenteditable="false"] {
+    opacity: 0.7;
+}
+
+.ns-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.ns-chip {
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 999px;
+    padding: 3px 10px;
+    background-color: var(--black30a);
+    color: var(--SmartThemeBodyColor);
+    cursor: pointer;
+    font-size: 0.85em;
+}
+
+.ns-chip:hover,
+.ns-chip:focus-visible {
+    border-color: var(--SmartThemeQuoteColor);
+}
+
+.ns-ai-settings-form small {
+    color: var(--ns-muted, inherit);
+    opacity: 0.8;
+}
+
+.ns-prompt-view {
+    text-align: left;
+}
+
+.ns-prompt-view pre {
+    white-space: pre-wrap;
+    font-size: 0.85em;
+    max-height: none;
+}
+
+.ns-prompt-sections {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 12px;
+}
+
+.ns-prompt-sections :is(th, td) {
+    text-align: left;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor);
+}
+
+.ns-prompt-total td {
+    font-weight: bold;
+}
+
 /* ---- Right panel ---- */
 
 .ns-tabs {
@@ -622,7 +811,9 @@
         grid-template-columns: minmax(0, 1fr);
     }
 
-    .ns-main {
+    .ns-left,
+    .ns-main,
+    .ns-right {
         grid-column: 1;
         grid-row: 1;
     }
@@ -661,4 +852,12 @@
     .ns-save-status {
         min-width: 0;
     }
+}
+
+.ns-project-form .menu_button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: auto;
+    white-space: nowrap;
 }

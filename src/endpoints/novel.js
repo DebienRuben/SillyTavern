@@ -5,6 +5,7 @@ import {
     createProject,
     deleteProject,
     getHistory,
+    getPrecedingScenes,
     getProject,
     getScene,
     getSceneVersion,
@@ -57,6 +58,13 @@ router.post('/scene/save', handle(request => saveScene(
     request.body?.sceneId,
     request.body?.content,
     request.body?.baseHash,
+)));
+
+router.post('/scenes/preceding', handle(request => getPrecedingScenes(
+    request.user.directories,
+    request.body?.id,
+    request.body?.sceneId,
+    request.body?.maxChars,
 )));
 
 router.post('/scene/version', handle(request => getSceneVersion(

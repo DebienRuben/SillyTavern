@@ -76,6 +76,24 @@ import EventSourceStream from './sse-stream.js';
 /**
  * Creates & sends a text completion request.
  */
+/**
+ * Describes a failed response, including the provider's error message when the body has one.
+ * @param {Response} response Failed response
+ * @param {string} text Response body
+ * @returns {string} Error message
+ */
+function getResponseErrorMessage(response, text) {
+    let detail = '';
+    try {
+        const data = JSON.parse(text);
+        const message = data?.error?.message ?? data?.message ?? data?.detail;
+        detail = typeof message === 'string' ? message : '';
+    } catch {
+        // Not JSON; the status alone has to do
+    }
+    return detail ? `Got response status ${response.status}: ${detail}` : `Got response status ${response.status}`;
+}
+
 export class TextCompletionService {
     static TYPE = 'textgenerationwebui';
 
@@ -156,7 +174,7 @@ export class TextCompletionService {
             const text = await response.text();
             tryParseStreamingError(response, text, { quiet: true });
 
-            throw new Error(`Got response status ${response.status}`);
+            throw new Error(getResponseErrorMessage(response, text));
         }
 
         const eventStream = new EventSourceStream();
@@ -497,7 +515,7 @@ export class ChatCompletionService {
             const text = await response.text();
             tryParseStreamingError(response, text, { quiet: true });
 
-            throw new Error(`Got response status ${response.status}`);
+            throw new Error(getResponseErrorMessage(response, text));
         }
 
         const eventStream = new EventSourceStream();

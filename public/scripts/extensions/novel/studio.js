@@ -4,6 +4,9 @@ import { extension_settings, renderExtensionTemplateAsync } from '../../extensio
 import { callGenericPopup, POPUP_RESULT, POPUP_TYPE } from '../../popup.js';
 import { novelApi } from './api.js';
 import { SceneEditor } from './editor.js';
+import { WritingAssistant } from './ai/assistant.js';
+import { DEFAULT_WRITER_INSTRUCTIONS, LENGTHS } from './ai/prompt.js';
+import { getProfiles } from './ai/generate.js';
 
 const MODULE = 'novel';
 const STRUCTURE_SAVE_DELAY_MS = 800;
@@ -42,6 +45,8 @@ export class NovelStudio {
     $root;
     /** @type {SceneEditor} */
     editor;
+    /** @type {WritingAssistant} */
+    assistant;
     /** @type {any} */
     project = null;
     /** @type {any} */
@@ -154,6 +159,7 @@ export class NovelStudio {
      * @param {string} sceneId Scene ID
      */
     async openScene(sceneId) {
+        this.assistant.discard();
         if (!await this.#flushEditor()) {
             return;
         }
@@ -222,6 +228,7 @@ export class NovelStudio {
         if (!this.project) {
             return true;
         }
+        this.assistant.discard();
         if (!await this.#flushEditor()) {
             return false;
         }
@@ -270,6 +277,18 @@ export class NovelStudio {
 
     #currentScene() {
         return this.editor.sceneId ? this.#findScene(this.editor.sceneId) : null;
+    }
+
+    /**
+     * Gets the open scene with its chapter.
+     * @returns {{ chapter: any, chapterNumber: number, scene: any } | null}
+     */
+    getCurrentScene() {
+        const current = this.#currentScene();
+        if (!current) {
+            return null;
+        }
+        return { ...current, chapterNumber: this.structure.chapters.indexOf(current.chapter) + 1 };
     }
 
     /** Marks the structure as changed and schedules a save. */
@@ -554,6 +573,7 @@ export class NovelStudio {
         }
         const containsOpenScene = chapter.scenes.some(s => s.id === this.editor.sceneId);
         if (containsOpenScene) {
+            this.assistant.discard();
             await this.editor.flush();
             this.editor.close();
         }
@@ -580,6 +600,7 @@ export class NovelStudio {
         }
         const isOpen = sceneId === this.editor.sceneId;
         if (isOpen) {
+            this.assistant.discard();
             await this.editor.flush();
             this.editor.close();
         }
@@ -661,6 +682,43 @@ export class NovelStudio {
         }
     }
 
+    async #editAiSettings() {
+        const ai = this.settings.ai;
+        const $form = $(await renderExtensionTemplateAsync(MODULE, 'ai-settings'));
+        const profiles = getProfiles();
+
+        for (const name of ['writerProfileId', 'backgroundProfileId']) {
+            const $select = $form.find(`[data-name="${name}"]`);
+            $select.append($('<option>').val('').text(profiles.length ? '— Choose a profile —' : '— No connection profiles yet —'));
+            for (const profile of profiles) {
+                $select.append($('<option>').val(profile.id).text(profile.name));
+            }
+            $select.val(profiles.some(p => p.id === ai[name]) ? ai[name] : '');
+        }
+        $form.find('[data-name="contextBudget"]').val(ai.contextBudget);
+        const $instructions = $form.find('[data-name="instructions"]');
+        $instructions.val(ai.instructions || DEFAULT_WRITER_INSTRUCTIONS);
+        $form.on('click', '.ns-reset-instructions', () => $instructions.val(DEFAULT_WRITER_INSTRUCTIONS));
+
+        const result = await callGenericPopup($form, POPUP_TYPE.CONFIRM, '', {
+            okButton: 'Save',
+            cancelButton: 'Cancel',
+            wide: true,
+            allowVerticalScrolling: true,
+        });
+        if (result !== POPUP_RESULT.AFFIRMATIVE) {
+            return;
+        }
+        ai.writerProfileId = String($form.find('[data-name="writerProfileId"]').val()) || null;
+        ai.backgroundProfileId = String($form.find('[data-name="backgroundProfileId"]').val()) || null;
+        const budget = Number($form.find('[data-name="contextBudget"]').val());
+        ai.contextBudget = Number.isFinite(budget) ? Math.min(1_000_000, Math.max(2000, Math.round(budget))) : ai.contextBudget;
+        const instructions = String($instructions.val()).trim();
+        // Store an empty string for the default, so improvements to the default reach existing users
+        ai.instructions = instructions === DEFAULT_WRITER_INSTRUCTIONS ? '' : instructions;
+        saveSettingsDebounced();
+    }
+
     /** @param {string} command Toolbar command */
     #runToolbarCommand(command) {
         const editor = this.editor.editor;
@@ -691,7 +749,13 @@ export class NovelStudio {
             onStatus: (status) => {
                 $root.find('.ns-save-status').attr('data-status', status).text(SAVE_STATUS_TEXT[status]);
             },
-            onWordCount: () => this.#renderStats(),
+            onWordCount: (words) => {
+                this.#renderStats();
+                $root.find('.ns-ai-continue span').text(words > 0 ? 'Continue' : 'Draft');
+            },
+            onSelectionChange: (hasSelection) => {
+                $root.find('.ns-ai-rewrite').prop('disabled', !hasSelection);
+            },
             onSaved: (sceneId, wordCount) => {
                 const found = this.#findScene(sceneId);
                 if (found) {
@@ -709,8 +773,28 @@ export class NovelStudio {
             },
         });
 
+        this.assistant = new WritingAssistant(this);
+
         // Keep SillyTavern's chat shortcuts (swipes, message editing) from firing while writing
         $root.on('keydown', (event) => event.stopPropagation());
+        $root.on('keydown', '.ns-editor', (event) => {
+            if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                this.assistant.continueScene();
+            }
+        });
+
+        const $length = $root.find('.ns-length');
+        for (const [value, { label, words }] of Object.entries(LENGTHS)) {
+            $length.append($('<option>').val(value).text(`${label} (~${words} words)`));
+        }
+        $length.val(this.settings.ai.length).on('change', () => {
+            this.settings.ai.length = String($length.val());
+            saveSettingsDebounced();
+        });
+        $root.on('click', '.ns-ai-continue', () => this.assistant.continueScene());
+        $root.on('click', '.ns-ai-rewrite', () => this.assistant.rewriteSelection());
+        $root.on('click', '.ns-ai-settings', () => this.#editAiSettings());
 
         $root.on('click', '.ns-close', () => this.close());
         $root.on('click', '.ns-show-projects', () => this.showProjects());

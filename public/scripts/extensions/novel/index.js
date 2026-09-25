@@ -10,6 +10,17 @@ const DEFAULT_SETTINGS = Object.freeze({
     lastProjectId: null,
     /** @type {Record<string, string>} */
     lastSceneByProject: {},
+    ai: {
+        /** @type {string|null} */
+        writerProfileId: null,
+        /** @type {string|null} */
+        backgroundProfileId: null,
+        contextBudget: 24000,
+        length: 'medium',
+        /** Custom writer instructions; empty means the built-in default. */
+        instructions: '',
+        lastRewriteInstruction: '',
+    },
 });
 
 /** @type {NovelStudio|null} */
@@ -60,7 +71,9 @@ async function addSettingsPanel() {
 }
 
 export async function init() {
-    extension_settings[MODULE] = { ...structuredClone(DEFAULT_SETTINGS), ...(extension_settings[MODULE] ?? {}) };
+    const saved = extension_settings[MODULE] ?? {};
+    const defaults = structuredClone(DEFAULT_SETTINGS);
+    extension_settings[MODULE] = { ...defaults, ...saved, ai: { ...defaults.ai, ...(saved.ai ?? {}) } };
 
     studio = await NovelStudio.create();
     addTopBarButton();

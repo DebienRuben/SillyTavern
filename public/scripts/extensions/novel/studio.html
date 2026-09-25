@@ -11,6 +11,7 @@
             <button type="button" class="menu_button ns-snapshot" title="Save a named snapshot of the whole project">
                 <i class="fa-solid fa-camera-retro"></i><span>Snapshot</span>
             </button>
+            <button type="button" class="ns-icon-button ns-ai-settings fa-solid fa-wand-magic-sparkles" title="AI settings"></button>
             <button type="button" class="ns-icon-button ns-project-settings fa-solid fa-gear" title="Project settings"></button>
             <button type="button" class="ns-icon-button ns-show-projects fa-solid fa-book" title="All projects"></button>
             <button type="button" class="ns-icon-button ns-toggle-right fa-solid fa-table-columns" title="Show/hide scene panel"></button>
@@ -48,8 +49,32 @@
                     <span class="ns-toolbar-sep"></span>
                     <button type="button" data-cmd="undo" title="Undo (Ctrl+Z)" class="fa-solid fa-rotate-left"></button>
                     <button type="button" data-cmd="redo" title="Redo (Ctrl+Shift+Z)" class="fa-solid fa-rotate-right"></button>
+                    <span class="ns-toolbar-sep"></span>
+                    <div class="ns-ai-tools">
+                        <select class="ns-length" title="Length of generated text"></select>
+                        <button type="button" class="ns-ai-button ns-ai-continue" title="Continue writing at the cursor (Ctrl+Enter)">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i><span>Continue</span>
+                        </button>
+                        <button type="button" class="ns-ai-button ns-ai-rewrite" title="Rewrite the selected text" disabled>
+                            <i class="fa-solid fa-pen-nib"></i><span>Rewrite</span>
+                        </button>
+                    </div>
                 </div>
                 <div class="ns-editor"></div>
+                <div class="ns-proposal" hidden>
+                    <div class="ns-proposal-header">
+                        <span class="ns-proposal-title"></span>
+                        <span class="ns-proposal-meta"></span>
+                        <button type="button" class="menu_button ns-proposal-prompt" title="See exactly what was sent to the model">Prompt</button>
+                        <button type="button" class="menu_button ns-proposal-stop"><i class="fa-solid fa-stop"></i><span>Stop</span></button>
+                    </div>
+                    <div class="ns-proposal-text novel-prose"></div>
+                    <div class="ns-proposal-actions">
+                        <button type="button" class="menu_button ns-proposal-accept">Insert</button>
+                        <button type="button" class="menu_button ns-proposal-retry"><i class="fa-solid fa-rotate"></i><span>Retry</span></button>
+                        <button type="button" class="menu_button ns-proposal-discard">Discard</button>
+                    </div>
+                </div>
             </div>
         </main>
 

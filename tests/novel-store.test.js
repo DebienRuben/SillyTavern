@@ -9,6 +9,7 @@ import {
     createProject,
     deleteProject,
     getHistory,
+    getPrecedingScenes,
     getProject,
     getScene,
     getSceneVersion,
@@ -149,6 +150,37 @@ describe('novel store', () => {
 
         const old = await getSceneVersion(directories, project.id, sceneId, firstOid);
         expect(old.content).toBe('First draft.');
+    });
+
+    test('returns preceding scenes newest first across chapters within a character budget', async () => {
+        const { project, structure } = await createProject(directories, {});
+        const chapterOne = structure.chapters[0];
+        await saveStructure(directories, project.id, {
+            chapters: [
+                { id: chapterOne.id, title: 'One', scenes: [{ id: 'scene-a', title: 'A' }, { id: 'scene-empty', title: 'Empty' }] },
+                { id: 'chapter-two', title: 'Two', scenes: [{ id: 'scene-b', title: 'B' }, { id: 'scene-c', title: 'C' }] },
+            ],
+        });
+        await saveScene(directories, project.id, 'scene-a', 'Alpha alpha alpha.', undefined);
+        await saveScene(directories, project.id, 'scene-b', 'Bravo.', undefined);
+        await saveScene(directories, project.id, 'scene-c', 'Current scene.', undefined);
+
+        const all = getPrecedingScenes(directories, project.id, 'scene-c', 1000);
+        expect(all.scenes.map(s => [s.sceneId, s.chapterNumber, s.truncated])).toEqual([['scene-b', 2, false], ['scene-a', 1, false]]);
+        expect(all.hasMore).toBe(false);
+
+        // 'Bravo.' (6 chars) fits whole; the last 5 characters of scene A fill the rest
+        const cut = getPrecedingScenes(directories, project.id, 'scene-c', 11);
+        expect(cut.scenes.map(s => s.content)).toEqual(['Bravo.', 'lpha.']);
+        expect(cut.scenes[1].truncated).toBe(true);
+        expect(cut.hasMore).toBe(true);
+
+        const exact = getPrecedingScenes(directories, project.id, 'scene-c', 6);
+        expect(exact.scenes.map(s => s.sceneId)).toEqual(['scene-b']);
+        expect(exact.hasMore).toBe(true);
+
+        expect(getPrecedingScenes(directories, project.id, 'scene-a', 1000)).toEqual({ scenes: [], hasMore: false });
+        await expectNovelError(() => getPrecedingScenes(directories, project.id, 'scene-c', -1), 400);
     });
 
     test('updates metadata and moves deleted projects to the trash', async () => {

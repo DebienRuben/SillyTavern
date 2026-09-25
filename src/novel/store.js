@@ -544,6 +544,61 @@ export async function saveScene(directories, projectId, sceneId, content, baseHa
 }
 
 /**
+ * Gets the prose of the scenes before a scene, newest first, across chapter
+ * boundaries, until a character budget is used up. The oldest returned scene
+ * is cut from its start if it does not fit whole.
+ * @param {import('../users.js').UserDirectoryList} directories User directories
+ * @param {string} projectId Project ID
+ * @param {string} sceneId Scene ID
+ * @param {unknown} maxChars Character budget
+ */
+export function getPrecedingScenes(directories, projectId, sceneId, maxChars) {
+    const budget = Number(maxChars);
+    if (!Number.isFinite(budget) || budget < 0) {
+        throw new NovelError(400, 'Invalid character budget');
+    }
+    const paths = projectPaths(directories, projectId);
+    const { structure } = readProjectFiles(paths);
+
+    const ordered = structure.chapters.flatMap((/** @type {any} */ chapter, chapterIndex) =>
+        chapter.scenes.map((/** @type {any} */ scene) => ({ chapter, chapterIndex, scene })));
+    const index = ordered.findIndex(entry => entry.scene.id === sceneId);
+    if (index === -1) {
+        throw new NovelError(404, 'Scene not found');
+    }
+
+    const scenes = [];
+    let remaining = budget;
+    let i = index - 1;
+    for (; i >= 0 && remaining > 0; i--) {
+        const { chapter, chapterIndex, scene } = ordered[i];
+        const filePath = paths.scene(scene.id);
+        const content = (fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '').trim();
+        if (!content) {
+            continue;
+        }
+        const truncated = content.length > remaining;
+        scenes.push({
+            chapterId: chapter.id,
+            chapterNumber: chapterIndex + 1,
+            chapterTitle: chapter.title,
+            sceneId: scene.id,
+            title: scene.title,
+            content: truncated ? content.slice(content.length - remaining) : content,
+            truncated,
+        });
+        remaining -= Math.min(content.length, remaining);
+    }
+
+    // More story exists before what was returned if a scene was cut or scenes were left unread
+    const hasMore = scenes.at(-1)?.truncated === true || ordered.slice(0, i + 1).some(entry => {
+        const filePath = paths.scene(entry.scene.id);
+        return fs.existsSync(filePath) && fs.statSync(filePath).size > 0;
+    });
+    return { scenes, hasMore };
+}
+
+/**
  * Commits all changes in a project.
  * @param {import('../users.js').UserDirectoryList} directories User directories
  * @param {string} projectId Project ID

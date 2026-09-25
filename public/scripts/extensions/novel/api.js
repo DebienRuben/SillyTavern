@@ -56,6 +56,11 @@ export const novelApi = {
      * @returns {Promise<{hash: string, wordCount: number}>}
      */
     saveScene: (id, sceneId, content, baseHash, options) => call('scene/save', { id, sceneId, content, baseHash }, options),
+    /**
+     * @param {string} id @param {string} sceneId @param {number} maxChars
+     * @returns {Promise<{scenes: import('./ai/prompt.js').PrecedingScene[], hasMore: boolean}>}
+     */
+    getPrecedingScenes: (id, sceneId, maxChars) => call('scenes/preceding', { id, sceneId, maxChars }),
     /** @param {string} id @param {string} sceneId @param {string} oid @returns {Promise<{content: string}>} */
     getSceneVersion: (id, sceneId, oid) => call('scene/version', { id, sceneId, oid }),
     /**

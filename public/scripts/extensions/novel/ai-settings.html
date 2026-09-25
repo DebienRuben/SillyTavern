@@ -1,0 +1,31 @@
+<div class="ns-project-form ns-ai-settings-form">
+    <h3>AI settings</h3>
+    <p class="ns-hint">
+        Models are chosen through connection profiles. To make one: open <b>API Connections</b> (plug icon), pick the
+        provider and model (e.g. OpenRouter + DeepSeek V4.1 Flash), then click <b>+</b> under Connection Profile and name it.
+        The profile's preset controls temperature and other sampling settings.
+    </p>
+    <div class="ns-form-row">
+        <label>Writer model
+            <select data-name="writerProfileId" class="text_pole"></select>
+            <small>Drafts, continues and rewrites prose.</small>
+        </label>
+        <label>Background model
+            <select data-name="backgroundProfileId" class="text_pole"></select>
+            <small>Summaries and codex updates (used from the next phase on).</small>
+        </label>
+    </div>
+    <div class="ns-form-row">
+        <label>Context budget (tokens)
+            <input type="number" data-name="contextBudget" class="text_pole" min="2000" max="1000000" step="1000" />
+            <small>Maximum prompt size. Larger means more of the story is sent, and each request costs more.</small>
+        </label>
+    </div>
+    <label>Writer instructions
+        <textarea data-name="instructions" class="text_pole" rows="10" maxlength="20000"></textarea>
+        <small>Sent with every writing request, before the novel's own style guide.</small>
+    </label>
+    <div>
+        <button type="button" class="menu_button ns-reset-instructions"><i class="fa-solid fa-rotate-left"></i><span>Reset instructions to default</span></button>
+    </div>
+</div>
