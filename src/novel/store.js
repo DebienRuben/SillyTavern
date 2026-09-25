@@ -10,7 +10,7 @@ import { tryParse } from '../util.js';
 export const SCENE_STATUSES = Object.freeze(['outline', 'draft', 'revised', 'final']);
 
 const FORMAT_VERSION = 1;
-const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+export const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const AUTO_SNAPSHOT_INTERVAL_MS = 10 * 60 * 1000;
 const GIT_AUTHOR = Object.freeze({ name: 'Novel Studio', email: 'novel-studio@localhost' });
 const TRASH_DIR = '.trash';
@@ -60,7 +60,7 @@ const locks = new Map();
  * @param {() => Promise<T>} fn Function to run
  * @returns {Promise<T>}
  */
-async function withLock(key, fn) {
+export async function withLock(key, fn) {
     const previous = locks.get(key) ?? Promise.resolve();
     const current = previous.catch(() => { }).then(fn);
     const tail = current.catch(() => { });
@@ -79,7 +79,7 @@ async function withLock(key, fn) {
  * @param {string} prefix Identifier prefix
  * @returns {string}
  */
-function newId(prefix) {
+export function newId(prefix) {
     return `${prefix}-${crypto.randomBytes(5).toString('hex')}`;
 }
 
@@ -89,7 +89,7 @@ function newId(prefix) {
  * @param {string} what Name of the identifier, for error messages
  * @returns {string} The identifier
  */
-function assertId(id, what) {
+export function assertId(id, what) {
     if (typeof id !== 'string' || !ID_PATTERN.test(id)) {
         throw new NovelError(400, `Invalid ${what}`);
     }
@@ -102,7 +102,7 @@ function assertId(id, what) {
  * @param {number} maxLength Maximum length
  * @returns {string}
  */
-function text(value, maxLength) {
+export function text(value, maxLength) {
     return typeof value === 'string' ? value.slice(0, maxLength) : '';
 }
 
@@ -129,7 +129,7 @@ export function countWords(markdown) {
  * @param {import('../users.js').UserDirectoryList} directories User directories
  * @param {string} projectId Project ID
  */
-function projectPaths(directories, projectId) {
+export function projectPaths(directories, projectId) {
     const root = path.join(directories.novels, assertId(projectId, 'project ID'));
     return {
         root,
@@ -137,6 +137,8 @@ function projectPaths(directories, projectId) {
         structure: path.join(root, 'structure.json'),
         scenes: path.join(root, 'scenes'),
         trash: path.join(root, 'trash'),
+        codex: path.join(root, 'codex'),
+        suggestions: path.join(root, 'suggestions.json'),
         /** @param {string} sceneId */
         scene: (sceneId) => path.join(root, 'scenes', `${assertId(sceneId, 'scene ID')}.md`),
     };
@@ -147,7 +149,7 @@ function projectPaths(directories, projectId) {
  * @param {string} filePath File path
  * @returns {any} Parsed contents, or null if the file is missing or invalid
  */
-function readJson(filePath) {
+export function readJson(filePath) {
     if (!fs.existsSync(filePath)) {
         return null;
     }
@@ -159,7 +161,7 @@ function readJson(filePath) {
  * @param {string} filePath File path
  * @param {any} data Data to write
  */
-function writeJson(filePath, data) {
+export function writeJson(filePath, data) {
     writeFileAtomicSync(filePath, JSON.stringify(data, null, 4) + '\n', 'utf8');
 }
 
@@ -168,13 +170,23 @@ function writeJson(filePath, data) {
  * @param {ReturnType<typeof projectPaths>} paths Project paths
  * @returns {{ project: object, structure: object }}
  */
-function readProjectFiles(paths) {
+export function readProjectFiles(paths) {
     const project = readJson(paths.project);
     if (!project) {
         throw new NovelError(404, 'Project not found');
     }
     const structure = readJson(paths.structure) ?? { version: FORMAT_VERSION, chapters: [] };
     return { project, structure };
+}
+
+/**
+ * Keeps the valid, unique IDs of a list.
+ * @param {unknown} list List from the client
+ * @returns {string[]}
+ */
+function idList(list) {
+    const ids = (Array.isArray(list) ? list : []).filter(id => typeof id === 'string' && ID_PATTERN.test(id));
+    return [...new Set(ids)].slice(0, 100);
 }
 
 /**
@@ -222,6 +234,9 @@ function normalizeStructure(input, previous) {
                     location: text(scene.location, LIMITS.short),
                     storyTime: text(scene.storyTime, LIMITS.short),
                     beats: text(scene.beats, LIMITS.long),
+                    // Codex entries the author pinned to this scene, or left out of it
+                    cast: idList(scene.cast),
+                    excludedCast: idList(scene.excludedCast),
                     wordCount: previousWordCounts.get(id) ?? 0,
                 };
             }),

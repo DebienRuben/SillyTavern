@@ -19,6 +19,8 @@ export const LENGTHS = Object.freeze({
     scene: { label: 'Full scene', words: 1800 },
 });
 
+/** Share of the flexible budget codex entries may use. They come before the prose in priority. */
+const CODEX_SHARE = 0.25;
 /** Share of the flexible budget the current scene's text before the cursor may use. */
 const BEFORE_CURSOR_SHARE = 0.6;
 /** Share of the flexible budget the text after the cursor may use. */
@@ -143,6 +145,7 @@ function tagged(tag, content) {
  * @property {string} [instruction] How to rewrite the passage
  * @property {number} [targetWords] Target length for continuations
  * @property {{ scenes: PrecedingScene[], hasMore: boolean }} preceding Earlier scenes, newest first
+ * @property {{ name: string, text: string }[]} [codex] Formatted codex entries, most important first
  * @property {number} budgetTokens Maximum prompt size in tokens
  */
 
@@ -155,7 +158,7 @@ function tagged(tag, content) {
 
 /**
  * Builds the messages for a writing request, fitting the context into the token budget.
- * Priority: instructions, task and scene brief (always) > scene text around the cursor > earlier scenes.
+ * Priority: instructions, task and scene brief (always) > codex > scene text around the cursor > earlier scenes.
  * @param {WritingPromptInput} input Prompt input
  * @returns {{ messages: { role: 'system' | 'user', content: string }[], sections: PromptSection[], maxTokens: number }}
  */
@@ -197,6 +200,13 @@ export function buildWritingPrompt(input) {
     const fixedTokens = estimateTokens(system + chapterBrief + sceneBrief + task + selectionBlock);
     let flexibleChars = tokensToChars(input.budgetTokens - fixedTokens);
 
+    const codex = fitCodex(input.codex ?? [], Math.floor(flexibleChars * CODEX_SHARE));
+    flexibleChars -= codex.text.length;
+    if (codex.text) {
+        const names = codex.included.join(', ');
+        sections.push({ name: `Codex: ${names}`, tokens: estimateTokens(codex.text), truncated: codex.omitted > 0 });
+    }
+
     const before = keepTail(input.beforeCursor.trim(), Math.floor(flexibleChars * BEFORE_CURSOR_SHARE));
     flexibleChars -= before.text.length;
     const after = keepHead(input.afterCursor.trim(), Math.floor(flexibleChars * (AFTER_CURSOR_SHARE / (1 - BEFORE_CURSOR_SHARE))));
@@ -217,7 +227,7 @@ export function buildWritingPrompt(input) {
         sections.push({ name: `Earlier scenes (${story.sceneCount})`, tokens: estimateTokens(story.text), truncated: story.truncated });
     }
 
-    const user = [story.text, chapterBrief, sceneBrief, beforeBlock, selectionBlock, afterBlock, task]
+    const user = [story.text, chapterBrief, sceneBrief, codex.text, beforeBlock, selectionBlock, afterBlock, task]
         .filter(Boolean)
         .join('\n\n');
 
@@ -234,6 +244,28 @@ export function buildWritingPrompt(input) {
         // Room for the target length plus slack, since tokens per word vary by model and language
         maxTokens: Math.ceil(outputWords * 2) + 400,
     };
+}
+
+/**
+ * Includes whole codex entries in priority order while they fit the budget.
+ * @param {{ name: string, text: string }[]} entries Formatted entries, most important first
+ * @param {number} maxChars Character budget
+ * @returns {{ text: string, included: string[], omitted: number }}
+ */
+function fitCodex(entries, maxChars) {
+    const included = [];
+    const parts = [];
+    let used = 0;
+    for (const entry of entries) {
+        const length = entry.text.length + 2;
+        if (used + length > maxChars) {
+            continue;
+        }
+        parts.push(entry.text);
+        included.push(entry.name);
+        used += length;
+    }
+    return { text: tagged('codex', parts.join('\n\n')), included, omitted: entries.length - included.length };
 }
 
 /**
@@ -288,13 +320,15 @@ function buildStorySoFar(preceding, maxChars) {
  */
 function buildTask(input) {
     const format = 'Respond with the prose only: no title, headings, notes or commentary, and no quotation marks around it. Use Markdown only for *italics* and **bold**.';
+    const codexRule = input.codex?.length ? 'Treat <codex> as the source of truth for facts about characters, places and things, and their current state.' : '';
 
     if (input.task === 'rewrite') {
         return tagged('task', [
             `Rewrite the passage in <passage_to_rewrite>. Instruction: ${input.instruction?.trim() || 'Improve the prose while keeping its meaning.'}`,
             'It must still fit seamlessly between <text_before> and <text_after>. Do not include that surrounding text.',
+            codexRule,
             format,
-        ].join('\n'));
+        ].filter(Boolean).join('\n'));
     }
 
     const words = input.targetWords ?? LENGTHS.medium.words;
@@ -306,6 +340,9 @@ function buildTask(input) {
     }
     if (input.scene.beats?.trim()) {
         lines.push('Stay within the scene\'s beats and follow them in order.');
+    }
+    if (codexRule) {
+        lines.push(codexRule);
     }
     lines.push(format);
     return tagged('task', lines.join('\n'));
@@ -320,7 +357,7 @@ export function countWords(text) {
     return text.match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu)?.length ?? 0;
 }
 
-const PROMPT_TAGS = ['story_so_far', 'current_chapter', 'current_scene', 'scene_text', 'text_before', 'text_after', 'passage_to_rewrite', 'task'];
+const PROMPT_TAGS = ['story_so_far', 'current_chapter', 'current_scene', 'codex', 'scene_text', 'text_before', 'text_after', 'passage_to_rewrite', 'task'];
 
 /**
  * Cleans model output: removes code fences, echoed prompt tags and a leading "Here is…" line.

@@ -15,6 +15,14 @@ import {
     snapshot,
     updateProject,
 } from '../novel/store.js';
+import {
+    deleteEntity,
+    listEntities,
+    listSuggestions,
+    replaceSceneSuggestions,
+    resolveSuggestion,
+    saveEntity,
+} from '../novel/codex.js';
 
 export const router = express.Router();
 
@@ -79,3 +87,26 @@ router.post('/snapshot', handle(async request => ({
 })));
 
 router.post('/history', handle(request => getHistory(request.user.directories, request.body?.id, request.body?.sceneId)));
+
+router.post('/codex/list', handle(request => listEntities(request.user.directories, request.body?.id)));
+
+router.post('/codex/save', handle(request => saveEntity(request.user.directories, request.body?.id, request.body?.entity)));
+
+router.post('/codex/delete', handle(request => deleteEntity(request.user.directories, request.body?.id, request.body?.entityId)));
+
+router.post('/suggestions/list', handle(request => listSuggestions(request.user.directories, request.body?.id)));
+
+router.post('/suggestions/replace', handle(request => replaceSceneSuggestions(
+    request.user.directories,
+    request.body?.id,
+    request.body?.sceneId,
+    request.body?.items,
+)));
+
+router.post('/suggestions/resolve', handle(request => resolveSuggestion(
+    request.user.directories,
+    request.body?.id,
+    request.body?.suggestionId,
+    request.body?.action,
+    request.body?.edits,
+)));

@@ -69,6 +69,21 @@ export const novelApi = {
      * @returns {Promise<{oid: string|null}>}
      */
     snapshot: (id, message, options) => call('snapshot', { id, message }, options),
+    /** @param {string} id @returns {Promise<any[]>} */
+    listCodex: (id) => call('codex/list', { id }),
+    /** @param {string} id @param {object} entity */
+    saveEntity: (id, entity) => call('codex/save', { id, entity }),
+    /** @param {string} id @param {string} entityId */
+    deleteEntity: (id, entityId) => call('codex/delete', { id, entityId }),
+    /** @param {string} id @returns {Promise<any[]>} */
+    listSuggestions: (id) => call('suggestions/list', { id }),
+    /** @param {string} id @param {string} sceneId @param {object[]} items @returns {Promise<any[]>} */
+    replaceSuggestions: (id, sceneId, items) => call('suggestions/replace', { id, sceneId, items }),
+    /**
+     * @param {string} id @param {string} suggestionId @param {'accept' | 'reject'} action @param {object} [edits]
+     * @returns {Promise<{entity: any | null}>}
+     */
+    resolveSuggestion: (id, suggestionId, action, edits) => call('suggestions/resolve', { id, suggestionId, action, edits }),
     /** @param {string} id @param {string} [sceneId] @returns {Promise<{oid: string, message: string, timestamp: number}[]>} */
     getHistory: (id, sceneId) => call('history', { id, sceneId }),
 };

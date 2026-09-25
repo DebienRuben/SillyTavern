@@ -1,4 +1,5 @@
 import { ConnectionManagerRequestService } from '../../shared.js';
+import { parseJsonResponse } from './codex-logic.js';
 
 /**
  * Lists the connection profiles that can be used for writing requests.
@@ -75,4 +76,38 @@ export async function streamCompletion({ profileId, role, messages, maxTokens, s
         onText(text);
     }
     return text;
+}
+
+/**
+ * Requests JSON through a connection profile. Asks for structured output first;
+ * if the provider rejects the schema or returns invalid JSON, retries once with
+ * the format described in the prompt instead.
+ * @param {object} options Request options
+ * @param {string|null|undefined} options.profileId Connection profile ID
+ * @param {string} options.role Role of the model, for error messages (e.g. "background")
+ * @param {{ role: string, content: string }[]} options.messages Prompt for structured output
+ * @param {{ role: string, content: string }[]} options.fallbackMessages Prompt that describes the JSON format itself
+ * @param {object} options.schema JSON schema ({ name, description, strict, value })
+ * @param {number} options.maxTokens Maximum response tokens
+ * @param {AbortSignal} [options.signal] Signal to stop the request
+ * @returns {Promise<any>} The parsed JSON
+ */
+export async function requestJson({ profileId, role, messages, fallbackMessages, schema, maxTokens, signal }) {
+    const id = requireProfile(profileId, role);
+    const options = { stream: false, signal, extractData: true, includePreset: true, includeInstruct: true };
+    try {
+        const result = /** @type {{ content: any }} */ (
+            await ConnectionManagerRequestService.sendRequest(id, messages, maxTokens, options, { json_schema: schema })
+        );
+        return parseJsonResponse(result.content);
+    } catch (error) {
+        if (signal?.aborted) {
+            throw error;
+        }
+        console.warn('Novel Studio: structured output failed, retrying with JSON instructions in the prompt', error);
+        const result = /** @type {{ content: any }} */ (
+            await ConnectionManagerRequestService.sendRequest(id, fallbackMessages, maxTokens, options)
+        );
+        return parseJsonResponse(result.content);
+    }
 }

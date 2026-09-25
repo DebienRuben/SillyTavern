@@ -81,6 +81,8 @@
         <aside class="ns-right">
             <div class="ns-tabs" role="tablist">
                 <button type="button" class="ns-tab active" data-tab="scene">Scene</button>
+                <button type="button" class="ns-tab" data-tab="codex">Codex</button>
+                <button type="button" class="ns-tab" data-tab="suggestions">Suggestions <span class="ns-badge" hidden></span></button>
                 <button type="button" class="ns-tab" data-tab="history">History</button>
             </div>
             <div class="ns-tab-panel" data-panel="scene">
@@ -106,6 +108,15 @@
                         <textarea data-field="beats" rows="8" maxlength="20000" placeholder="What happens in this scene?"></textarea>
                     </label>
                 </div>
+                <div class="ns-scene-cast">
+                    <h4>In this scene</h4>
+                    <div class="ns-cast-list"></div>
+                    <select class="ns-cast-add" title="Always include this codex entry when writing this scene"></select>
+                    <button type="button" class="menu_button ns-analyze-scene" title="Ask the background model how this scene changes the codex">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i><span>Update codex from this scene</span>
+                    </button>
+                    <p class="ns-hint ns-analyze-status"></p>
+                </div>
                 <div class="ns-chapter-meta">
                     <h4>Chapter</h4>
                     <label>Title
@@ -115,6 +126,21 @@
                         <textarea data-chapter-field="synopsis" rows="5" maxlength="20000"></textarea>
                     </label>
                 </div>
+            </div>
+            <div class="ns-tab-panel" data-panel="codex" hidden>
+                <div class="ns-panel-toolbar">
+                    <input type="search" class="ns-codex-search" placeholder="Search the codex" />
+                    <button type="button" class="menu_button ns-codex-new"><i class="fa-solid fa-plus"></i><span>New</span></button>
+                </div>
+                <div class="ns-codex-list"></div>
+            </div>
+            <div class="ns-tab-panel" data-panel="suggestions" hidden>
+                <div class="ns-panel-toolbar">
+                    <span class="ns-suggestions-count"></span>
+                    <button type="button" class="menu_button ns-accept-all">Accept all</button>
+                    <button type="button" class="menu_button ns-reject-all">Reject all</button>
+                </div>
+                <div class="ns-suggestions"></div>
             </div>
             <div class="ns-tab-panel" data-panel="history" hidden>
                 <p class="ns-hint">Snapshots are taken automatically every 10 minutes while you write, when you close the studio, and when you click Snapshot.</p>

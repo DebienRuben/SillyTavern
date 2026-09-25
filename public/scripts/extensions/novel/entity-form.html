@@ -1,0 +1,26 @@
+<div class="ns-project-form ns-entity-form">
+    <h3 class="ns-entity-form-title">Codex entry</h3>
+    <div class="ns-form-row">
+        <label>Name
+            <input type="text" data-name="name" class="text_pole" maxlength="200" placeholder="e.g. Mara Voss" />
+        </label>
+        <label>Type
+            <select data-name="type" class="text_pole"></select>
+        </label>
+    </div>
+    <label>Other names
+        <input type="text" data-name="aliases" class="text_pole" maxlength="2000" placeholder="Comma-separated, e.g. Mara, the captain" />
+        <small>Used to spot the entry in your scenes. Include nicknames, titles and short forms.</small>
+    </label>
+    <label>Description
+        <textarea data-name="description" class="text_pole" rows="6" maxlength="20000" placeholder="Appearance, voice, backstory, what never changes about them."></textarea>
+    </label>
+    <label>Notes
+        <textarea data-name="notes" class="text_pole" rows="3" maxlength="20000" placeholder="Private notes. Not sent to the AI."></textarea>
+    </label>
+    <div class="ns-timeline">
+        <h4>State over the story</h4>
+        <p class="ns-hint ns-timeline-empty">No state recorded yet. State is added when you accept codex suggestions for a scene.</p>
+        <div class="ns-timeline-entries"></div>
+    </div>
+</div>

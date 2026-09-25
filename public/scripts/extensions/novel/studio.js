@@ -5,6 +5,7 @@ import { callGenericPopup, POPUP_RESULT, POPUP_TYPE } from '../../popup.js';
 import { novelApi } from './api.js';
 import { SceneEditor } from './editor.js';
 import { WritingAssistant } from './ai/assistant.js';
+import { CodexPanel } from './codex-panel.js';
 import { DEFAULT_WRITER_INSTRUCTIONS, LENGTHS } from './ai/prompt.js';
 import { getProfiles } from './ai/generate.js';
 
@@ -47,6 +48,8 @@ export class NovelStudio {
     editor;
     /** @type {WritingAssistant} */
     assistant;
+    /** @type {CodexPanel} */
+    codex;
     /** @type {any} */
     project = null;
     /** @type {any} */
@@ -123,6 +126,7 @@ export class NovelStudio {
         this.project = null;
         this.structure = null;
         this.editor.close();
+        this.codex.clear();
         this.$root.attr('data-view', 'projects');
         this.$root.find('.ns-project-title').text('');
         this.$root.find('.ns-stats').text('');
@@ -143,6 +147,11 @@ export class NovelStudio {
         this.$root.attr('data-view', 'workspace');
         this.$root.find('.ns-project-title').text(project.title);
         this.renderTree();
+        try {
+            await this.codex.load();
+        } catch (error) {
+            toastr.error(`Could not load the codex: ${error.message}`, 'Novel Studio');
+        }
 
         const lastSceneId = this.settings.lastSceneByProject?.[project.id];
         const sceneId = this.#findScene(lastSceneId) ? lastSceneId : this.structure.chapters[0]?.scenes[0]?.id;
@@ -174,6 +183,7 @@ export class NovelStudio {
         this.#renderSceneMeta();
         this.#highlightCurrentScene();
         this.#renderStats();
+        this.codex.renderCast();
         if (this.$root.find('.ns-tab[data-tab="history"]').hasClass('active')) {
             await this.#renderHistory();
         }
@@ -295,6 +305,11 @@ export class NovelStudio {
     #structureChanged() {
         clearTimeout(this.#structureTimer);
         this.#structureTimer = setTimeout(() => this.saveStructureNow(), STRUCTURE_SAVE_DELAY_MS);
+    }
+
+    /** Schedules a structure save after a change made outside the studio (e.g. the codex panel). */
+    scheduleStructureSave() {
+        this.#structureChanged();
     }
 
     // ---- Rendering ----
@@ -764,6 +779,8 @@ export class NovelStudio {
                     const chapterWords = found.chapter.scenes.reduce((sum, s) => sum + (s.wordCount || 0), 0);
                     $root.find(`.ns-chapter[data-id="${found.chapter.id}"] > .ns-chapter-row .ns-count`).text(formatNumber(chapterWords));
                 }
+                // New names may have been written into the scene
+                this.codex.renderCast();
             },
             onConflict: async () => {
                 const result = await callGenericPopup(
@@ -774,6 +791,7 @@ export class NovelStudio {
         });
 
         this.assistant = new WritingAssistant(this);
+        this.codex = new CodexPanel(this);
 
         // Keep SillyTavern's chat shortcuts (swipes, message editing) from firing while writing
         $root.on('keydown', (event) => event.stopPropagation());
@@ -858,6 +876,12 @@ export class NovelStudio {
             current.scene[field] = String($(event.currentTarget).val());
             if (field === 'status') {
                 $root.find(`.ns-scene[data-id="${current.scene.id}"] .ns-status-dot`).attr('data-status', current.scene.status).attr('title', current.scene.status);
+                if (event.type === 'change') {
+                    this.codex.onStatusChanged(current.scene.id, current.scene.status);
+                }
+            }
+            if (['pov', 'location', 'beats'].includes(field)) {
+                this.codex.renderCast();
             }
             this.#structureChanged();
         });
@@ -881,6 +905,10 @@ export class NovelStudio {
             $root.find('.ns-tab-panel').each((_, panel) => { panel.hidden = panel.dataset.panel !== tab; });
             if (tab === 'history') {
                 this.#renderHistory();
+            } else if (tab === 'codex') {
+                this.codex.renderList();
+            } else if (tab === 'suggestions') {
+                this.codex.renderSuggestions();
             }
         });
         $root.on('click', '.ns-history-view', (event) => this.#viewSnapshot($(event.currentTarget).closest('.ns-history-entry').attr('data-oid')));

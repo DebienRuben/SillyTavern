@@ -6,6 +6,8 @@ import { describeError, streamCompletion } from './generate.js';
 import { buildWritingPrompt, cleanOutput, countWords, LENGTHS, tokensToChars } from './prompt.js';
 
 const MODULE = 'novel';
+/** How much prose around the cursor is scanned for codex mentions. */
+const CODEX_SCAN_CHARS = 6000;
 
 const TASK_TEXT = Object.freeze({
     continue: { running: 'Writing…', done: 'Continuation', accept: 'Insert' },
@@ -173,6 +175,11 @@ export class WritingAssistant {
                 targetWords: request.targetWords,
                 preceding,
                 budgetTokens: budget,
+                codex: studio.codex.entriesForPrompt(current.scene, [
+                    request.context.before.slice(-CODEX_SCAN_CHARS),
+                    request.context.selection,
+                    request.context.after.slice(0, CODEX_SCAN_CHARS / 4),
+                ]),
             });
             this.#lastPrompt = prompt;
 
