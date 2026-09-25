@@ -1,0 +1,100 @@
+<div id="novel_studio" class="novel-studio" data-view="projects">
+    <header class="ns-header">
+        <button type="button" class="ns-icon-button ns-toggle-left fa-solid fa-list-ul" title="Show/hide chapters"></button>
+        <div class="ns-heading">
+            <span class="ns-app-name">Novel Studio</span>
+            <span class="ns-project-title"></span>
+        </div>
+        <div class="ns-stats" title="Words: scene · chapter · book"></div>
+        <div class="ns-save-status" data-status="saved"></div>
+        <div class="ns-header-actions">
+            <button type="button" class="menu_button ns-snapshot" title="Save a named snapshot of the whole project">
+                <i class="fa-solid fa-camera-retro"></i><span>Snapshot</span>
+            </button>
+            <button type="button" class="ns-icon-button ns-project-settings fa-solid fa-gear" title="Project settings"></button>
+            <button type="button" class="ns-icon-button ns-show-projects fa-solid fa-book" title="All projects"></button>
+            <button type="button" class="ns-icon-button ns-toggle-right fa-solid fa-table-columns" title="Show/hide scene panel"></button>
+            <button type="button" class="ns-icon-button ns-close fa-solid fa-xmark" title="Close Novel Studio"></button>
+        </div>
+    </header>
+
+    <section class="ns-projects">
+        <div class="ns-projects-header">
+            <h2>Your novels</h2>
+            <button type="button" class="menu_button ns-new-project"><i class="fa-solid fa-plus"></i><span>New novel</span></button>
+        </div>
+        <div class="ns-project-list"></div>
+    </section>
+
+    <section class="ns-workspace">
+        <aside class="ns-left">
+            <div class="ns-tree"></div>
+            <button type="button" class="menu_button ns-add-chapter"><i class="fa-solid fa-plus"></i><span>Add chapter</span></button>
+        </aside>
+
+        <main class="ns-main">
+            <div class="ns-empty">Select or add a scene to start writing.</div>
+            <div class="ns-editor-wrap">
+                <input type="text" class="ns-scene-title" placeholder="Scene title" maxlength="300" />
+                <div class="ns-toolbar" role="toolbar">
+                    <button type="button" data-cmd="bold" title="Bold (Ctrl+B)" class="fa-solid fa-bold"></button>
+                    <button type="button" data-cmd="italic" title="Italic (Ctrl+I)" class="fa-solid fa-italic"></button>
+                    <button type="button" data-cmd="strike" title="Strikethrough" class="fa-solid fa-strikethrough"></button>
+                    <span class="ns-toolbar-sep"></span>
+                    <button type="button" data-cmd="h2" title="Heading">H2</button>
+                    <button type="button" data-cmd="h3" title="Subheading">H3</button>
+                    <button type="button" data-cmd="blockquote" title="Quote" class="fa-solid fa-quote-left"></button>
+                    <button type="button" data-cmd="hr" title="Scene break" class="fa-solid fa-asterisk"></button>
+                    <span class="ns-toolbar-sep"></span>
+                    <button type="button" data-cmd="undo" title="Undo (Ctrl+Z)" class="fa-solid fa-rotate-left"></button>
+                    <button type="button" data-cmd="redo" title="Redo (Ctrl+Shift+Z)" class="fa-solid fa-rotate-right"></button>
+                </div>
+                <div class="ns-editor"></div>
+            </div>
+        </main>
+
+        <aside class="ns-right">
+            <div class="ns-tabs" role="tablist">
+                <button type="button" class="ns-tab active" data-tab="scene">Scene</button>
+                <button type="button" class="ns-tab" data-tab="history">History</button>
+            </div>
+            <div class="ns-tab-panel" data-panel="scene">
+                <div class="ns-scene-meta">
+                    <label>Status
+                        <select data-field="status">
+                            <option value="outline">Outline</option>
+                            <option value="draft">Draft</option>
+                            <option value="revised">Revised</option>
+                            <option value="final">Final</option>
+                        </select>
+                    </label>
+                    <label>Point of view
+                        <input type="text" data-field="pov" maxlength="500" placeholder="Whose eyes?" />
+                    </label>
+                    <label>Location
+                        <input type="text" data-field="location" maxlength="500" />
+                    </label>
+                    <label>Story time
+                        <input type="text" data-field="storyTime" maxlength="500" placeholder="e.g. Day 3, evening" />
+                    </label>
+                    <label>Beats / outline
+                        <textarea data-field="beats" rows="8" maxlength="20000" placeholder="What happens in this scene?"></textarea>
+                    </label>
+                </div>
+                <div class="ns-chapter-meta">
+                    <h4>Chapter</h4>
+                    <label>Title
+                        <input type="text" data-chapter-field="title" maxlength="300" />
+                    </label>
+                    <label>Synopsis
+                        <textarea data-chapter-field="synopsis" rows="5" maxlength="20000"></textarea>
+                    </label>
+                </div>
+            </div>
+            <div class="ns-tab-panel" data-panel="history" hidden>
+                <p class="ns-hint">Snapshots are taken automatically every 10 minutes while you write, when you close the studio, and when you click Snapshot.</p>
+                <div class="ns-history"></div>
+            </div>
+        </aside>
+    </section>
+</div>

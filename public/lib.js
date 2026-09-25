@@ -25,6 +25,15 @@ import yaml from 'yaml';
 import * as chevrotain from 'chevrotain';
 import { gzipSync, gzip } from 'fflate';
 import { sha256 } from 'js-sha256';
+import { Editor as TiptapEditor } from '@tiptap/core';
+import StarterKit from '@tiptap/starter-kit';
+import { Placeholder, CharacterCount } from '@tiptap/extensions';
+import { Markdown } from '@tiptap/markdown';
+
+/**
+ * Rich text editor used by Novel Studio.
+ */
+const tiptap = { Editor: TiptapEditor, StarterKit, Placeholder, CharacterCount, Markdown };
 
 /**
  * Expose the libraries to the 'window' object.
@@ -107,6 +116,7 @@ export default {
     gzipSync,
     gzip,
     sha256,
+    tiptap,
 };
 
 export {
@@ -135,4 +145,5 @@ export {
     gzipSync,
     gzip,
     sha256,
+    tiptap,
 };

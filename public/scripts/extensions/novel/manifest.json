@@ -1,0 +1,14 @@
+{
+    "display_name": "Novel Studio",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "Ruben Debien",
+    "version": "0.1.0",
+    "homePage": "",
+    "hooks": {
+        "activate": "init"
+    }
+}

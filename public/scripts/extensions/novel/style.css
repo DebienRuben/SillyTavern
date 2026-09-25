@@ -1,0 +1,664 @@
+.novel-studio {
+    --ns-left-width: 280px;
+    --ns-right-width: 320px;
+    --ns-header-height: 46px;
+    --ns-gap: 10px;
+    --ns-prose-font: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
+    --ns-panel-bg: var(--SmartThemeBlurTintColor);
+    --ns-muted: color-mix(in srgb, var(--SmartThemeBodyColor) 60%, transparent);
+
+    /* Explicit viewport sizes: on mobile SillyTavern transforms <html>, which
+       would otherwise become the containing block and collapse the height */
+    position: fixed;
+    top: var(--topBarBlockSize);
+    left: 0;
+    width: 100vw;
+    width: 100dvw;
+    height: calc(100vh - var(--topBarBlockSize));
+    height: calc(100dvh - var(--topBarBlockSize));
+    z-index: 35;
+    display: flex;
+    flex-direction: column;
+    color: var(--SmartThemeBodyColor);
+    background-color: var(--SmartThemeBlurTintColor);
+    backdrop-filter: blur(calc(var(--SmartThemeBlurStrength) * 2));
+    -webkit-backdrop-filter: blur(calc(var(--SmartThemeBlurStrength) * 2));
+}
+
+/* Icon buttons keep the Font Awesome font */
+.novel-studio button:not(.fa-solid) {
+    font-family: inherit;
+}
+
+.novel-studio .menu_button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: auto;
+    margin: 0;
+    white-space: nowrap;
+}
+
+.ns-icon-button {
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 6px;
+    opacity: 0.75;
+}
+
+.ns-icon-button:hover,
+.ns-icon-button:focus-visible {
+    opacity: 1;
+    background-color: var(--white20a);
+}
+
+.ns-hint {
+    color: var(--ns-muted);
+    font-size: 0.9em;
+    padding: 8px 4px;
+}
+
+/* ---- Header ---- */
+
+.ns-header {
+    flex: 0 0 var(--ns-header-height);
+    display: flex;
+    align-items: center;
+    gap: var(--ns-gap);
+    padding: 0 10px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor);
+    min-width: 0;
+}
+
+.ns-heading {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.ns-app-name {
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+.ns-project-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--ns-muted);
+}
+
+.ns-stats {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--ns-muted);
+    font-size: 0.9em;
+}
+
+.ns-save-status {
+    font-size: 0.85em;
+    white-space: nowrap;
+    min-width: 7em;
+    text-align: right;
+}
+
+.ns-save-status[data-status="saved"] {
+    color: var(--ns-muted);
+}
+
+.ns-save-status[data-status="error"],
+.ns-save-status[data-status="conflict"] {
+    color: var(--warning, #e6a23c);
+    font-weight: bold;
+}
+
+.ns-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.novel-studio[data-view="projects"] :is(.ns-toggle-left, .ns-toggle-right, .ns-snapshot, .ns-project-settings, .ns-show-projects, .ns-stats, .ns-save-status) {
+    display: none;
+}
+
+/* ---- Views ---- */
+
+.ns-projects,
+.ns-workspace {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.novel-studio[data-view="projects"] .ns-workspace,
+.novel-studio[data-view="workspace"] .ns-projects {
+    display: none;
+}
+
+/* ---- Project list ---- */
+
+.ns-projects {
+    overflow-y: auto;
+    padding: 20px;
+    max-width: 960px;
+    width: 100%;
+    margin: 0 auto;
+}
+
+.ns-projects-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ns-gap);
+    margin-bottom: 16px;
+}
+
+.ns-projects-header h2 {
+    margin: 0;
+}
+
+.ns-project-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+}
+
+.ns-project-card {
+    position: relative;
+    padding: 14px 40px 14px 14px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 10px;
+    background-color: var(--black30a);
+    cursor: pointer;
+}
+
+.ns-project-card:hover,
+.ns-project-card:focus-visible {
+    border-color: var(--SmartThemeQuoteColor);
+}
+
+.ns-project-card-title {
+    font-family: var(--ns-prose-font);
+    font-size: 1.2em;
+    font-weight: bold;
+    margin-bottom: 4px;
+    overflow-wrap: anywhere;
+}
+
+.ns-project-card-genre,
+.ns-project-card-stats {
+    color: var(--ns-muted);
+    font-size: 0.85em;
+}
+
+.ns-project-card .ns-delete-project {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+}
+
+/* ---- Workspace ---- */
+
+.ns-workspace {
+    display: grid;
+    grid-template-columns: var(--ns-left-width) minmax(0, 1fr) var(--ns-right-width);
+    position: relative;
+}
+
+.novel-studio.ns-hide-left .ns-workspace {
+    grid-template-columns: 0 minmax(0, 1fr) var(--ns-right-width);
+}
+
+.novel-studio.ns-hide-right .ns-workspace {
+    grid-template-columns: var(--ns-left-width) minmax(0, 1fr) 0;
+}
+
+.novel-studio.ns-hide-left.ns-hide-right .ns-workspace {
+    grid-template-columns: 0 minmax(0, 1fr) 0;
+}
+
+.novel-studio.ns-hide-left .ns-left,
+.novel-studio.ns-hide-right .ns-right {
+    display: none;
+}
+
+.ns-left,
+.ns-right {
+    min-height: 0;
+    overflow-y: auto;
+    padding: 10px;
+    background-color: var(--black30a);
+}
+
+.ns-left {
+    border-right: 1px solid var(--SmartThemeBorderColor);
+    display: flex;
+    flex-direction: column;
+    gap: var(--ns-gap);
+}
+
+.ns-right {
+    border-left: 1px solid var(--SmartThemeBorderColor);
+}
+
+/* ---- Tree ---- */
+
+.ns-chapters,
+.ns-scenes {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.ns-chapter {
+    margin-bottom: 6px;
+}
+
+.ns-chapter-row,
+.ns-scene {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 4px 4px 2px;
+    border-radius: 6px;
+}
+
+.ns-chapter-row {
+    font-weight: bold;
+}
+
+.ns-chapter-title,
+.ns-scene-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ns-chapter-title {
+    cursor: pointer;
+}
+
+.ns-chapter.collapsed .ns-scenes {
+    display: none;
+}
+
+.ns-scenes {
+    padding-left: 14px;
+    min-height: 6px;
+}
+
+.ns-scene {
+    cursor: pointer;
+}
+
+.ns-scene:hover,
+.ns-scene:focus-visible {
+    background-color: var(--white20a);
+}
+
+.ns-scene.active {
+    background-color: var(--white30a);
+    outline: 1px solid var(--SmartThemeQuoteColor);
+}
+
+.ns-count {
+    font-size: 0.8em;
+    font-weight: normal;
+    color: var(--ns-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.ns-drag-handle {
+    cursor: grab;
+    opacity: 0.35;
+    font-size: 0.85em;
+}
+
+.ns-chapter-row .ns-icon-button,
+.ns-scene .ns-icon-button {
+    padding: 2px 4px;
+    font-size: 0.85em;
+    visibility: hidden;
+}
+
+.ns-chapter-row:hover .ns-icon-button,
+.ns-scene:hover .ns-icon-button,
+.ns-scene.active .ns-icon-button,
+.ns-chapter-row :focus-visible {
+    visibility: visible;
+}
+
+.ns-status-dot {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #8a8a8a;
+}
+
+.ns-status-dot[data-status="draft"] {
+    background-color: #d9a441;
+}
+
+.ns-status-dot[data-status="revised"] {
+    background-color: #4f8fd9;
+}
+
+.ns-status-dot[data-status="final"] {
+    background-color: #4fae6a;
+}
+
+.ns-add-chapter {
+    align-self: flex-start;
+}
+
+/* ---- Editor ---- */
+
+.ns-main {
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.ns-empty {
+    margin: auto;
+    color: var(--ns-muted);
+}
+
+.ns-editor-wrap {
+    width: 100%;
+    max-width: 46em;
+    margin: 0 auto;
+    padding: 24px 24px 40vh;
+}
+
+.ns-scene-title {
+    width: 100%;
+    background: none;
+    border: none;
+    border-bottom: 1px solid transparent;
+    color: inherit;
+    font-family: var(--ns-prose-font);
+    font-size: 1.6em;
+    font-weight: bold;
+    padding: 4px 0;
+    margin-bottom: 8px;
+}
+
+.ns-scene-title:focus {
+    outline: none;
+    border-bottom-color: var(--SmartThemeBorderColor);
+}
+
+.ns-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px;
+    padding: 4px;
+    margin-bottom: 16px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    background-color: var(--ns-panel-bg);
+    backdrop-filter: blur(var(--SmartThemeBlurStrength));
+    -webkit-backdrop-filter: blur(var(--SmartThemeBlurStrength));
+}
+
+.ns-toolbar button {
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    min-width: 30px;
+    height: 28px;
+    border-radius: 5px;
+    font-weight: bold;
+    font-size: 0.85em;
+}
+
+.ns-toolbar button:hover,
+.ns-toolbar button:focus-visible {
+    background-color: var(--white20a);
+}
+
+.ns-toolbar-sep {
+    width: 1px;
+    height: 18px;
+    margin: 0 4px;
+    background-color: var(--SmartThemeBorderColor);
+}
+
+.novel-prose {
+    font-family: var(--ns-prose-font);
+    font-size: 1.15rem;
+    line-height: 1.75;
+    outline: none;
+    min-height: 50vh;
+    overflow-wrap: break-word;
+}
+
+.novel-prose p {
+    margin: 0 0 0.9em;
+}
+
+.novel-prose h2,
+.novel-prose h3 {
+    font-family: var(--ns-prose-font);
+    margin: 1.2em 0 0.5em;
+}
+
+.novel-prose blockquote {
+    border-left: 3px solid var(--SmartThemeQuoteColor);
+    margin: 0 0 0.9em;
+    padding-left: 1em;
+    font-style: italic;
+}
+
+.novel-prose hr {
+    border: none;
+    text-align: center;
+    margin: 1.5em 0;
+}
+
+.novel-prose hr::after {
+    content: '* * *';
+    letter-spacing: 0.5em;
+    color: var(--ns-muted);
+}
+
+.novel-prose hr.ProseMirror-selectednode::after {
+    color: var(--SmartThemeQuoteColor);
+}
+
+.novel-prose p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
+    color: var(--ns-muted);
+}
+
+/* ---- Right panel ---- */
+
+.ns-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor);
+}
+
+.ns-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--ns-muted);
+    cursor: pointer;
+    padding: 6px 10px;
+}
+
+.ns-tab.active {
+    color: var(--SmartThemeBodyColor);
+    border-bottom-color: var(--SmartThemeQuoteColor);
+}
+
+.ns-scene-meta,
+.ns-chapter-meta,
+.ns-project-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.ns-chapter-meta {
+    margin-top: 18px;
+    padding-top: 10px;
+    border-top: 1px solid var(--SmartThemeBorderColor);
+}
+
+.ns-chapter-meta h4 {
+    margin: 0;
+}
+
+.ns-scene-meta label,
+.ns-chapter-meta label,
+.ns-project-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.85em;
+    color: var(--ns-muted);
+}
+
+.ns-scene-meta :is(input, select, textarea),
+.ns-chapter-meta :is(input, textarea) {
+    font-size: 1rem;
+    color: var(--SmartThemeBodyColor);
+    background-color: var(--black30a);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    padding: 6px 8px;
+    width: 100%;
+    resize: vertical;
+}
+
+.ns-form-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.ns-form-row label {
+    flex: 1 1 160px;
+}
+
+.ns-project-form {
+    text-align: left;
+}
+
+.ns-project-form h3 {
+    margin: 0 0 4px;
+}
+
+.ns-project-form .text_pole {
+    margin: 0;
+    color: var(--SmartThemeBodyColor);
+}
+
+/* ---- History ---- */
+
+.ns-history {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ns-history-entry {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 2px 8px;
+    align-items: center;
+    padding: 8px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+}
+
+.ns-history-message {
+    font-weight: bold;
+    overflow-wrap: anywhere;
+}
+
+.ns-history-time {
+    grid-column: 1;
+    font-size: 0.8em;
+    color: var(--ns-muted);
+}
+
+.ns-history-view {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+}
+
+.ns-snapshot-preview {
+    text-align: left;
+    min-height: 0;
+}
+
+/* ---- Narrow screens: side panels overlay the editor ---- */
+
+@media (max-width: 1000px) {
+    /* ID selector: must win over every desktop panel-toggle combination */
+    #novel_studio .ns-workspace {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .ns-main {
+        grid-column: 1;
+        grid-row: 1;
+    }
+
+    .ns-left,
+    .ns-right {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        z-index: 2;
+        width: min(85vw, 340px);
+        background-color: var(--ns-panel-bg);
+        backdrop-filter: blur(calc(var(--SmartThemeBlurStrength) * 2));
+        -webkit-backdrop-filter: blur(calc(var(--SmartThemeBlurStrength) * 2));
+        box-shadow: 0 0 20px var(--black70a);
+    }
+
+    .ns-left {
+        left: 0;
+    }
+
+    .ns-right {
+        right: 0;
+    }
+
+    .ns-stats,
+    .ns-snapshot span,
+    .ns-app-name {
+        display: none;
+    }
+
+    .ns-editor-wrap {
+        padding: 16px 16px 40vh;
+    }
+
+    .ns-save-status {
+        min-width: 0;
+    }
+}
