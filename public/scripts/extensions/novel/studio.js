@@ -38,6 +38,29 @@ function newId(prefix) {
  * @param {number} value
  * @returns {string}
  */
+/**
+ * Names a chapter in the binder. Default titles like "Chapter 3" show the chapter's current
+ * position, so they stay right after chapters are inserted or moved.
+ * @param {any} chapter
+ * @param {number} index Position of the chapter in the book
+ * @returns {string}
+ */
+function chapterName(chapter, index) {
+    const title = chapter.title?.trim() ?? '';
+    return !title || /^chapter\s+\d+$/i.test(title) ? `Chapter ${index + 1}` : title;
+}
+
+/**
+ * Names a scene in the binder. Default titles like "Scene 2" show the scene's current position.
+ * @param {any} scene
+ * @param {number} index Position of the scene in its chapter
+ * @returns {string}
+ */
+function sceneName(scene, index) {
+    const title = scene.title?.trim() ?? '';
+    return !title || /^scene\s+\d+$/i.test(title) ? `Scene ${index + 1}` : title;
+}
+
 function formatNumber(value) {
     return Number(value || 0).toLocaleString();
 }
@@ -375,23 +398,24 @@ export class NovelStudio {
         const $tree = this.$root.find('.ns-tree').empty();
         const $chapters = $('<ol class="ns-chapters">');
 
-        for (const chapter of this.structure.chapters) {
+        for (const [chapterIndex, chapter] of this.structure.chapters.entries()) {
             const chapterWords = chapter.scenes.reduce((sum, s) => sum + (s.wordCount || 0), 0);
             const $chapter = $('<li class="ns-chapter">').attr('data-id', chapter.id);
             const $row = $('<div class="ns-chapter-row">');
             $row.append('<i class="fa-solid fa-grip-vertical ns-drag-handle" title="Drag to reorder"></i>');
-            $row.append($('<span class="ns-chapter-title">').text(chapter.title || 'Untitled chapter'));
+            $row.append($('<span class="ns-chapter-title">').text(chapterName(chapter, chapterIndex)));
             $row.append($('<span class="ns-count">').text(formatNumber(chapterWords)));
+            $row.append('<button type="button" class="ns-icon-button ns-insert-chapter fa-solid fa-arrow-turn-up" title="Insert a chapter before this one"></button>');
             $row.append('<button type="button" class="ns-icon-button ns-add-scene fa-solid fa-plus" title="Add scene"></button>');
             $row.append('<button type="button" class="ns-icon-button ns-delete-chapter fa-solid fa-trash-can" title="Delete chapter"></button>');
             $chapter.append($row);
 
             const $scenes = $('<ol class="ns-scenes">');
-            for (const scene of chapter.scenes) {
+            for (const [sceneIndex, scene] of chapter.scenes.entries()) {
                 const $scene = $('<li class="ns-scene" tabindex="0">').attr('data-id', scene.id);
                 $scene.append('<i class="fa-solid fa-grip-vertical ns-drag-handle" title="Drag to reorder"></i>');
                 $scene.append($('<span class="ns-status-dot">').attr('data-status', scene.status).attr('title', scene.status));
-                $scene.append($('<span class="ns-scene-name">').text(scene.title || 'Untitled scene'));
+                $scene.append($('<span class="ns-scene-name">').text(sceneName(scene, sceneIndex)));
                 $scene.append($('<span class="ns-count">').text(formatNumber(scene.wordCount)));
                 $scene.append('<button type="button" class="ns-icon-button ns-delete-scene fa-solid fa-trash-can" title="Delete scene"></button>');
                 $scenes.append($scene);
@@ -585,10 +609,11 @@ export class NovelStudio {
         }
     }
 
-    async #addChapter() {
-        const number = this.structure.chapters.length + 1;
+    /** @param {string} [beforeChapterId] Chapter to insert the new one before; appends when left out */
+    async #addChapter(beforeChapterId) {
+        const index = beforeChapterId ? this.structure.chapters.findIndex(c => c.id === beforeChapterId) : this.structure.chapters.length;
         const scene = { id: newId('scene'), title: 'Scene 1', status: 'outline', pov: '', location: '', storyTime: '', beats: '', wordCount: 0 };
-        this.structure.chapters.push({ id: newId('chapter'), title: `Chapter ${number}`, synopsis: '', scenes: [scene] });
+        this.structure.chapters.splice(index, 0, { id: newId('chapter'), title: `Chapter ${index + 1}`, synopsis: '', scenes: [scene] });
         this.renderTree();
         await this.saveStructureNow();
         await this.openScene(scene.id);
@@ -609,7 +634,7 @@ export class NovelStudio {
         const chapter = this.#findChapter(chapterId);
         const words = chapter.scenes.reduce((sum, s) => sum + (s.wordCount || 0), 0);
         const confirmed = await callGenericPopup(
-            `Delete "${chapter.title || 'Untitled chapter'}" and its ${chapter.scenes.length} scene(s) (${formatNumber(words)} words)? Earlier versions stay in the snapshot history.`,
+            `Delete "${chapterName(chapter, this.structure.chapters.indexOf(chapter))}" and its ${chapter.scenes.length} scene(s) (${formatNumber(words)} words)? Earlier versions stay in the snapshot history.`,
             POPUP_TYPE.CONFIRM, '', { okButton: 'Delete', cancelButton: 'Cancel' });
         if (confirmed !== POPUP_RESULT.AFFIRMATIVE) {
             return;
@@ -636,7 +661,7 @@ export class NovelStudio {
             return;
         }
         const confirmed = await callGenericPopup(
-            `Delete "${found.scene.title || 'Untitled scene'}" (${formatNumber(found.scene.wordCount)} words)? Earlier versions stay in the snapshot history.`,
+            `Delete "${sceneName(found.scene, found.chapter.scenes.indexOf(found.scene))}" (${formatNumber(found.scene.wordCount)} words)? Earlier versions stay in the snapshot history.`,
             POPUP_TYPE.CONFIRM, '', { okButton: 'Delete', cancelButton: 'Cancel' });
         if (confirmed !== POPUP_RESULT.AFFIRMATIVE) {
             return;
@@ -967,6 +992,7 @@ export class NovelStudio {
         });
 
         $root.on('click', '.ns-add-chapter', () => this.#addChapter());
+        $root.on('click', '.ns-insert-chapter', (event) => this.#addChapter($(event.currentTarget).closest('.ns-chapter').attr('data-id')));
         $root.on('click', '.ns-add-scene', (event) => this.#addScene($(event.currentTarget).closest('.ns-chapter').attr('data-id')));
         $root.on('click', '.ns-delete-chapter', (event) => this.#deleteChapter($(event.currentTarget).closest('.ns-chapter').attr('data-id')));
         $root.on('click', '.ns-delete-scene', (event) => {
@@ -991,7 +1017,7 @@ export class NovelStudio {
                 return;
             }
             current.scene.title = String($(event.currentTarget).val());
-            $root.find(`.ns-scene[data-id="${current.scene.id}"] .ns-scene-name`).text(current.scene.title || 'Untitled scene');
+            $root.find(`.ns-scene[data-id="${current.scene.id}"] .ns-scene-name`).text(sceneName(current.scene, current.chapter.scenes.indexOf(current.scene)));
             this.#structureChanged();
         });
         $root.on('input change', '[data-field]', (event) => {
@@ -1021,7 +1047,7 @@ export class NovelStudio {
             const field = event.currentTarget.dataset.chapterField;
             current.chapter[field] = String($(event.currentTarget).val());
             if (field === 'title') {
-                $root.find(`.ns-chapter[data-id="${current.chapter.id}"] .ns-chapter-title`).text(current.chapter.title || 'Untitled chapter');
+                $root.find(`.ns-chapter[data-id="${current.chapter.id}"] .ns-chapter-title`).text(chapterName(current.chapter, this.structure.chapters.indexOf(current.chapter)));
             }
             this.#structureChanged();
         });

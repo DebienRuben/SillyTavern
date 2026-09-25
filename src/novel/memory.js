@@ -50,7 +50,8 @@ function hashParts(parts) {
  * Works out the summary state of a project: every summary with the hash of its
  * current source and whether it is out of date.
  * - A scene summary is written from the scene's prose. Empty scenes need none.
- * - A chapter summary is written from its scenes' summaries.
+ * - A chapter summary is written from its scenes' summaries. It also goes out of date when the
+ *   chapter moves, because it was written knowing the chapter's number.
  * - The book synopsis is written from the chapter summaries.
  * @param {import('../users.js').UserDirectoryList} directories User directories
  * @param {string} projectId Project ID
@@ -66,7 +67,7 @@ export function getSummaryState(directories, projectId) {
     const chapters = {};
     const chapterParts = [];
 
-    for (const chapter of structure.chapters) {
+    for (const [chapterIndex, chapter] of structure.chapters.entries()) {
         const sceneParts = [];
         let chapterEmpty = true;
         for (const scene of chapter.scenes) {
@@ -93,7 +94,9 @@ export function getSummaryState(directories, projectId) {
             text: summary?.text ?? '',
             sourceHash,
             empty: chapterEmpty,
-            stale: !chapterEmpty && (!summary || summary.sourceHash !== sourceHash),
+            // Summaries saved before chapter numbers were stored have none, and are not flagged for it
+            stale: !chapterEmpty && (!summary || summary.sourceHash !== sourceHash
+                || (summary.chapterNumber !== undefined && summary.chapterNumber !== chapterIndex + 1)),
             updatedAt: summary?.updatedAt ?? null,
         };
         if (!chapterEmpty) {
@@ -144,10 +147,11 @@ export async function saveSummary(directories, projectId, level, key, summaryTex
             summaries.scenes[sceneId] = entry;
         } else if (level === 'chapter') {
             const chapterId = assertId(key, 'chapter ID');
-            if (!structure.chapters.some((/** @type {any} */ c) => c.id === chapterId)) {
+            const index = structure.chapters.findIndex((/** @type {any} */ c) => c.id === chapterId);
+            if (index === -1) {
                 throw new NovelError(404, 'Chapter not found');
             }
-            summaries.chapters[chapterId] = entry;
+            summaries.chapters[chapterId] = { ...entry, chapterNumber: index + 1 };
         } else if (level === 'book') {
             summaries.book = entry;
         } else {

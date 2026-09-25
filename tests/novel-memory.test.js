@@ -74,6 +74,26 @@ describe('summary state', () => {
         expect(state.chapters['chapter-two'].stale).toBe(false);
     });
 
+    test('a chapter summary goes out of date when its chapter moves', async () => {
+        let state = getSummaryState(directories, projectId);
+        await saveSummary(directories, projectId, 'chapter', 'chapter-two', 'Tom lies.', state.chapters['chapter-two'].sourceHash);
+        expect(getSummaryState(directories, projectId).chapters['chapter-two'].stale).toBe(false);
+
+        // A new chapter inserted before it changes its number
+        await saveStructure(directories, projectId, {
+            chapters: [
+                { id: 'chapter-new', title: 'New', scenes: [] },
+                { id: 'chapter-one', title: 'One', scenes: [{ id: 'scene-a', title: 'A' }, { id: 'scene-empty', title: 'Empty' }] },
+                { id: 'chapter-two', title: 'Two', scenes: [{ id: 'scene-b', title: 'B' }] },
+                { id: 'chapter-blank', title: 'Blank', scenes: [] },
+            ],
+        });
+        state = getSummaryState(directories, projectId);
+        expect(state.chapters['chapter-two'].stale).toBe(true);
+        await saveSummary(directories, projectId, 'chapter', 'chapter-two', 'Tom lies again.', state.chapters['chapter-two'].sourceHash);
+        expect(getSummaryState(directories, projectId).chapters['chapter-two'].stale).toBe(false);
+    });
+
     test('a summary saved with an outdated source hash stays out of date', async () => {
         const before = getSummaryState(directories, projectId);
         await saveScene(directories, projectId, 'scene-a', 'Changed while the summary was being written.', undefined);
